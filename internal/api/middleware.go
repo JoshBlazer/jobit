@@ -1,0 +1,47 @@
+package api
+
+import (
+	"log/slog"
+	"net/http"
+	"strings"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/pulse/internal/storage"
+	"github.com/pulse/internal/tenant"
+)
+
+// authMiddleware reads Authorization: Bearer <api_key>, looks up the tenant,
+// and injects it into the request context. Rejects with 401 if missing or invalid.
+func authMiddleware(db *pgxpool.Pool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			key := extractBearerToken(r)
+			if key == "" {
+				writeError(w, http.StatusUnauthorized, "missing api key")
+				return
+			}
+			t, err := storage.GetTenantByAPIKey(r.Context(), db, key)
+			if err != nil {
+				if err != storage.ErrNotFound {
+					slog.Error("tenant lookup", "err", err)
+				}
+				writeError(w, http.StatusUnauthorized, "invalid api key")
+				return
+			}
+			ctx := tenant.WithTenant(r.Context(), t)
+			next.ServeHTTP(w, r.WithContext(ctx))
+		})
+	}
+}
+
+func extractBearerToken(r *http.Request) string {
+	hdr := r.Header.Get("Authorization")
+	if hdr == "" {
+		return ""
+	}
+	parts := strings.SplitN(hdr, " ", 2)
+	if len(parts) != 2 || !strings.EqualFold(parts[0], "bearer") {
+		return ""
+	}
+	return strings.TrimSpace(parts[1])
+}
