@@ -267,12 +267,12 @@ Update this section at the end of each work session.
 ```
 Phase 1 - Core Engine:        [x] COMPLETE — builds, migrations run, end-to-end test passed (job submitted → succeeded)
 Phase 2 - Reliability:        [x] COMPLETE — auth 401/200, idempotency, jitter backoff, cron scheduling, rate limits, admin CLI
-Phase 3 - High Availability:  [ ] BLOCKED (waiting on Phase 2)
+Phase 3 - High Availability:  [x] COMPLETE — etcd leader election, weighted fair queuing, SIGHUP reload, split-brain test, K8s + Helm
 Phase 4 - Observability:      [ ] BLOCKED (waiting on Phase 3)
 ```
 
-Last worked on: 2026-05-26
-Next task: Phase 3 — etcd leader election, split-brain safety test, hot config reload, weighted fair queuing, graceful shutdown improvements, K8s manifests
+Last worked on: 2026-05-31
+Next task: Phase 4 — Prometheus metrics, slog correlation IDs, OpenTelemetry traces (Jaeger), Next.js dashboard (TanStack Query + Tailwind + shadcn/ui + Recharts + WebSocket)
 
 Dev notes:
 - Postgres runs on port 5433 (native Postgres occupies 5432 on this machine)
@@ -281,3 +281,7 @@ Dev notes:
 - Go binary: C:\Program Files\Go\bin\go
 - migrate CLI installed with: go install -tags 'pgx5' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 - migrate URL format: pgx5://pulse:pulse@localhost:5433/pulse?sslmode=disable
+- etcd runs on port 2379 (quay.io/coreos/etcd:v3.5.16), single-node for local dev
+- Queue keys are now per-tenant: queue:{priority}:{tenantID} — flush Redis when switching from Phase 2 data
+- Split-brain test: go test -tags integration ./internal/storage/... -run TestTryClaim_SkipLocked (needs Docker stack running)
+- SIGHUP reloads tenant weights in worker: kill -SIGHUP <worker-pid> or Send-Signal on Windows

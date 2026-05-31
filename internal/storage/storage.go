@@ -544,19 +544,20 @@ func scanSchedule(row pgx.Row) (*Schedule, error) {
 // ---------------------------------------------------------------------------
 
 type Tenant struct {
-	ID          uuid.UUID
-	Name        string
-	APIKey      string
-	RateLimit   int
-	Status      string
+	ID        uuid.UUID
+	Name      string
+	APIKey    string
+	RateLimit int
+	Weight    int
+	Status    string
 }
 
 func GetTenantByAPIKey(ctx context.Context, db *pgxpool.Pool, apiKey string) (*Tenant, error) {
 	var t Tenant
 	err := db.QueryRow(ctx, `
-		SELECT id, name, api_key, rate_limit, status
+		SELECT id, name, api_key, rate_limit, weight, status
 		FROM tenants WHERE api_key = $1 AND status = 'active'`, apiKey).
-		Scan(&t.ID, &t.Name, &t.APIKey, &t.RateLimit, &t.Status)
+		Scan(&t.ID, &t.Name, &t.APIKey, &t.RateLimit, &t.Weight, &t.Status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -564,4 +565,25 @@ func GetTenantByAPIKey(ctx context.Context, db *pgxpool.Pool, apiKey string) (*T
 		return nil, fmt.Errorf("get tenant: %w", err)
 	}
 	return &t, nil
+}
+
+// GetTenants returns all active tenants with their scheduling weights.
+// Used by workers to build the weighted-fair-queue dequeue set.
+func GetTenants(ctx context.Context, db *pgxpool.Pool) ([]*Tenant, error) {
+	rows, err := db.Query(ctx, `
+		SELECT id, name, api_key, rate_limit, weight, status
+		FROM tenants WHERE status = 'active'`)
+	if err != nil {
+		return nil, fmt.Errorf("get tenants: %w", err)
+	}
+	defer rows.Close()
+	var out []*Tenant
+	for rows.Next() {
+		var t Tenant
+		if err := rows.Scan(&t.ID, &t.Name, &t.APIKey, &t.RateLimit, &t.Weight, &t.Status); err != nil {
+			return nil, fmt.Errorf("scan tenant: %w", err)
+		}
+		out = append(out, &t)
+	}
+	return out, rows.Err()
 }

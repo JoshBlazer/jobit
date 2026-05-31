@@ -5,24 +5,26 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pulse/internal/job"
+	"github.com/pulse/internal/leader"
 	"github.com/pulse/internal/queue"
 	"github.com/pulse/internal/storage"
 	"github.com/robfig/cron/v3"
 )
 
 const (
-	duePollInterval    = 100 * time.Millisecond
-	staleReapInterval  = 5 * time.Second
-	deadLetterInterval = 30 * time.Second
-	cronInterval       = 60 * time.Second
-	duePollBatchSize   = 500
+	duePollInterval     = 100 * time.Millisecond
+	staleReapInterval   = 5 * time.Second
+	deadLetterInterval  = 30 * time.Second
+	cronInterval        = 60 * time.Second
+	duePollBatchSize    = 500
 	failedPollBatchSize = 500
-	cronBatchSize      = 200
+	cronBatchSize       = 200
 )
 
 type Scheduler struct {
@@ -34,14 +36,39 @@ func New(db *pgxpool.Pool, q *queue.Queue) *Scheduler {
 	return &Scheduler{db: db, queue: q}
 }
 
-func (s *Scheduler) Run(ctx context.Context) {
-	slog.Info("scheduler started")
-	go s.runDuePoll(ctx)
-	go s.runStaleReaper(ctx)
-	go s.runDeadLetterPromoter(ctx)
-	go s.runCronExpander(ctx)
-	<-ctx.Done()
-	slog.Info("scheduler stopped")
+// Run enters the leader-election loop. It blocks until ctx is cancelled.
+// The four scheduler loops only run while this instance holds the etcd lease.
+// Non-leaders keep the DB connection warm and wait to take over.
+func (s *Scheduler) Run(ctx context.Context, elect *leader.Election) {
+	hostname := uuid.NewString() // unique identity within this election
+	slog.Info("scheduler hot-standby — waiting for leader election")
+
+	for ctx.Err() == nil {
+		leaderCtx, resign, err := elect.Campaign(ctx, hostname)
+		if err != nil {
+			// ctx was cancelled during campaign — clean shutdown
+			return
+		}
+		slog.Info("scheduler became leader")
+
+		var wg sync.WaitGroup
+		for _, fn := range []func(context.Context){
+			s.runDuePoll,
+			s.runStaleReaper,
+			s.runDeadLetterPromoter,
+			s.runCronExpander,
+		} {
+			wg.Add(1)
+			go func(f func(context.Context)) {
+				defer wg.Done()
+				f(leaderCtx)
+			}(fn)
+		}
+
+		wg.Wait()
+		resign()
+		slog.Info("scheduler lost leadership — re-entering election")
+	}
 }
 
 func (s *Scheduler) runDuePoll(ctx context.Context) {
@@ -58,7 +85,6 @@ func (s *Scheduler) runDuePoll(ctx context.Context) {
 	}
 }
 
-// pollScheduledJobs promotes scheduled jobs whose run_at has passed to pending.
 func (s *Scheduler) pollScheduledJobs(ctx context.Context) {
 	jobs, err := storage.GetDueJobs(ctx, s.db, duePollBatchSize)
 	if err != nil {
@@ -70,13 +96,12 @@ func (s *Scheduler) pollScheduledJobs(ctx context.Context) {
 			slog.Error("promote scheduled job", "job_id", j.ID, "err", err)
 			continue
 		}
-		if err := s.queue.Enqueue(ctx, j.ID, j.Priority); err != nil {
+		if err := s.queue.Enqueue(ctx, j.TenantID, j.ID, j.Priority); err != nil {
 			slog.Error("enqueue scheduled job", "job_id", j.ID, "err", err)
 		}
 	}
 }
 
-// pollFailedJobs re-enqueues failed jobs whose backoff has elapsed.
 func (s *Scheduler) pollFailedJobs(ctx context.Context) {
 	jobs, err := storage.GetFailedReadyJobs(ctx, s.db, failedPollBatchSize)
 	if err != nil {
@@ -88,7 +113,7 @@ func (s *Scheduler) pollFailedJobs(ctx context.Context) {
 			slog.Error("promote failed job", "job_id", j.ID, "err", err)
 			continue
 		}
-		if err := s.queue.Enqueue(ctx, j.ID, j.Priority); err != nil {
+		if err := s.queue.Enqueue(ctx, j.TenantID, j.ID, j.Priority); err != nil {
 			slog.Error("enqueue retried job", "job_id", j.ID, "err", err)
 		}
 	}
@@ -119,7 +144,7 @@ func (s *Scheduler) reapStaleClaims(ctx context.Context) {
 			slog.Error("requeue stale job", "job_id", j.ID, "err", err)
 			continue
 		}
-		if err := s.queue.Enqueue(ctx, j.ID, j.Priority); err != nil {
+		if err := s.queue.Enqueue(ctx, j.TenantID, j.ID, j.Priority); err != nil {
 			slog.Error("enqueue reaped job", "job_id", j.ID, "err", err)
 		}
 	}
@@ -152,10 +177,7 @@ func (s *Scheduler) promoteDeadJobs(ctx context.Context) {
 	}
 }
 
-// runCronExpander fires once per minute, finds due recurring schedules,
-// creates a job from each schedule's job_template, and advances next_run_at.
 func (s *Scheduler) runCronExpander(ctx context.Context) {
-	// Fire immediately on start so any overdue schedules are caught.
 	s.expandCron(ctx)
 
 	ticker := time.NewTicker(cronInterval)
@@ -184,7 +206,6 @@ func (s *Scheduler) expandCron(ctx context.Context) {
 }
 
 func (s *Scheduler) fireSchedule(ctx context.Context, sched *storage.Schedule) error {
-	// Parse the cron expression to calculate next_run_at.
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	expr, err := parser.Parse(sched.Cron)
 	if err != nil {
@@ -194,7 +215,6 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched *storage.Schedule) e
 	now := time.Now()
 	nextRunAt := expr.Next(now)
 
-	// Build a job from the schedule template.
 	var template struct {
 		Type           string          `json:"type"`
 		Payload        json.RawMessage `json:"payload"`
@@ -236,7 +256,7 @@ func (s *Scheduler) fireSchedule(ctx context.Context, sched *storage.Schedule) e
 	if err := storage.InsertJob(ctx, s.db, j); err != nil {
 		return fmt.Errorf("insert cron job: %w", err)
 	}
-	if err := s.queue.Enqueue(ctx, j.ID, j.Priority); err != nil {
+	if err := s.queue.Enqueue(ctx, j.TenantID, j.ID, j.Priority); err != nil {
 		slog.Warn("enqueue cron job failed — job is durable in postgres", "job_id", j.ID, "err", err)
 	}
 	if err := storage.UpdateScheduleAfterRun(ctx, s.db, sched.ID, now, nextRunAt); err != nil {

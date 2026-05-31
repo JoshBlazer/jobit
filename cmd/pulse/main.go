@@ -8,11 +8,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pulse/internal/api"
+	"github.com/pulse/internal/leader"
 	"github.com/pulse/internal/queue"
 	"github.com/pulse/internal/ratelimit"
 	"github.com/pulse/internal/scheduler"
@@ -24,6 +26,7 @@ type config struct {
 	role            string
 	postgresURL     string
 	redisAddr       string
+	etcdEndpoints   string
 	httpPort        int
 	shutdownTimeout time.Duration
 }
@@ -33,6 +36,7 @@ func loadConfig() config {
 	flag.StringVar(&c.role, "role", env("PULSE_ROLE", ""), "role to run: api | scheduler | worker")
 	flag.StringVar(&c.postgresURL, "postgres-url", env("PULSE_POSTGRES_URL", "postgres://pulse:pulse@localhost:5433/pulse?sslmode=disable"), "postgres connection string")
 	flag.StringVar(&c.redisAddr, "redis-addr", env("PULSE_REDIS_ADDR", "localhost:6379"), "redis address")
+	flag.StringVar(&c.etcdEndpoints, "etcd-endpoints", env("PULSE_ETCD_ENDPOINTS", "localhost:2379"), "comma-separated etcd endpoints")
 	flag.IntVar(&c.httpPort, "port", envInt("PULSE_PORT", 8080), "http port (api role only)")
 	flag.DurationVar(&c.shutdownTimeout, "shutdown-timeout", 30*time.Second, "graceful shutdown timeout")
 	flag.Parse()
@@ -74,7 +78,7 @@ func main() {
 	case "api":
 		runAPI(ctx, c, db, q, limiter)
 	case "scheduler":
-		runScheduler(ctx, db, q)
+		runScheduler(ctx, c, db, q)
 	case "worker":
 		runWorker(ctx, c, db, q)
 	default:
@@ -108,14 +112,34 @@ func runAPI(ctx context.Context, c config, db *pgxpool.Pool, q *queue.Queue, lim
 	}
 }
 
-func runScheduler(ctx context.Context, db *pgxpool.Pool, q *queue.Queue) {
+func runScheduler(ctx context.Context, c config, db *pgxpool.Pool, q *queue.Queue) {
+	endpoints := strings.Split(c.etcdEndpoints, ",")
+	etcdClient, err := leader.NewClient(endpoints)
+	if err != nil {
+		slog.Error("connect to etcd", "err", err)
+		os.Exit(1)
+	}
+	defer etcdClient.Close()
+
+	elect := leader.New(etcdClient, "/pulse/scheduler/leader", 5)
 	s := scheduler.New(db, q)
-	s.Run(ctx)
+	s.Run(ctx, elect)
 }
 
 func runWorker(ctx context.Context, c config, db *pgxpool.Pool, q *queue.Queue) {
 	w := worker.New(db, q)
 	go w.Run(ctx)
+
+	// SIGHUP triggers a hot reload of tenant weights without restarting.
+	sighupCh := make(chan os.Signal, 1)
+	signal.Notify(sighupCh, syscall.SIGHUP)
+	go func() {
+		for range sighupCh {
+			slog.Info("SIGHUP received — reloading tenant weights")
+			w.Reload()
+		}
+	}()
+
 	<-ctx.Done()
 	w.Shutdown(c.shutdownTimeout)
 }

@@ -1,0 +1,50 @@
+image:
+  repository: pulse
+  tag: latest
+  pullPolicy: IfNotPresent
+
+postgres:
+  url: "postgres://pulse:pulse@postgres:5432/pulse?sslmode=disable"
+
+redis:
+  addr: "redis:6379"
+
+etcd:
+  endpoints: "etcd:2379"
+
+api:
+  replicas: 2
+  port: 8080
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+scheduler:
+  replicas: 3
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+worker:
+  replicas: 2
+  shutdownTimeout: 45s
+  resources:
+    requests:
+      cpu: 200m
+      memory: 64Mi
+    limits:
+      cpu: 1000m
+      memory: 256Mi
+  autoscaling:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 20
+    queueDepthPerReplica: 10

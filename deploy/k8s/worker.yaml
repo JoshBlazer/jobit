@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pulse-worker
+  namespace: pulse
+  labels:
+    app: pulse-worker
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pulse-worker
+  template:
+    metadata:
+      labels:
+        app: pulse-worker
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: worker
+          image: pulse:latest
+          args: ["--role", "worker", "--shutdown-timeout", "45s"]
+          envFrom:
+            - configMapRef:
+                name: pulse-config
+          lifecycle:
+            preStop:
+              exec:
+                # Give the worker time to drain before the pod is killed.
+                command: ["/bin/sh", "-c", "kill -SIGTERM 1 && sleep 5"]
+          resources:
+            requests:
+              cpu: 200m
+              memory: 64Mi
+            limits:
+              cpu: 1000m
+              memory: 256Mi
+---
+# KEDA ScaledObject — scales worker replicas based on Redis queue depth.
+# Requires KEDA to be installed in the cluster (https://keda.sh).
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: pulse-worker-scaler
+  namespace: pulse
+spec:
+  scaleTargetRef:
+    name: pulse-worker
+  minReplicaCount: 1
+  maxReplicaCount: 20
+  pollingInterval: 15
+  cooldownPeriod: 60
+  triggers:
+    - type: redis
+      metadata:
+        address: redis:6379
+        listName: queue:1
+        listLength: "10"
+    - type: redis
+      metadata:
+        address: redis:6379
+        listName: queue:5
+        listLength: "10"
+    - type: redis
+      metadata:
+        address: redis:6379
+        listName: queue:10
+        listLength: "10"

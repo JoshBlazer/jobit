@@ -109,7 +109,7 @@ func (s *Server) handleSubmitJob(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if state == job.StatePending {
-		if err := s.queue.Enqueue(r.Context(), j.ID, j.Priority); err != nil {
+		if err := s.queue.Enqueue(r.Context(), j.TenantID, j.ID, j.Priority); err != nil {
 			slog.Error("enqueue job", "job_id", j.ID, "err", err)
 		}
 	}

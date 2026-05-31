@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pulse-config
+  namespace: pulse
+data:
+  PULSE_POSTGRES_URL: "postgres://pulse:pulse@postgres:5432/pulse?sslmode=disable"
+  PULSE_REDIS_ADDR: "redis:6379"
+  PULSE_ETCD_ENDPOINTS: "etcd:2379"
+  PULSE_PORT: "8080"

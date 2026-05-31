@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,6 +22,7 @@ const (
 	visibilityTimeout = 30 * time.Second
 	heartbeatInterval = 5 * time.Second
 	httpTimeout       = 25 * time.Second
+	tenantRefresh     = 60 * time.Second
 )
 
 type Worker struct {
@@ -29,6 +31,10 @@ type Worker struct {
 	queue    *queue.Queue
 	shutdown chan struct{}
 	done     chan struct{}
+	reload   chan struct{}
+
+	tenantsMu sync.RWMutex
+	tenants   []queue.TenantWeight
 }
 
 func New(db *pgxpool.Pool, q *queue.Queue) *Worker {
@@ -38,6 +44,16 @@ func New(db *pgxpool.Pool, q *queue.Queue) *Worker {
 		queue:    q,
 		shutdown: make(chan struct{}),
 		done:     make(chan struct{}),
+		reload:   make(chan struct{}, 1),
+	}
+}
+
+// Reload signals the worker to refresh its tenant weight cache from Postgres.
+// Called on SIGHUP for hot config reload. Non-blocking.
+func (w *Worker) Reload() {
+	select {
+	case w.reload <- struct{}{}:
+	default:
 	}
 }
 
@@ -45,16 +61,44 @@ func (w *Worker) Run(ctx context.Context) {
 	defer close(w.done)
 	slog.Info("worker started", "worker_id", w.id)
 
+	w.loadTenants(ctx)
+
+	// Background goroutine refreshes the tenant list periodically and on demand.
+	go func() {
+		ticker := time.NewTicker(tenantRefresh)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				w.loadTenants(ctx)
+			case <-w.reload:
+				slog.Info("worker reloading tenant weights", "worker_id", w.id)
+				w.loadTenants(ctx)
+			}
+		}
+	}()
+
 	for {
 		select {
 		case <-w.shutdown:
 			slog.Info("worker shutting down", "worker_id", w.id)
 			return
+		case <-ctx.Done():
+			return
 		default:
 		}
 
-		jobID, err := w.queue.Dequeue(ctx, w.id, dequeueTimeout)
+		w.tenantsMu.RLock()
+		tenants := w.tenants
+		w.tenantsMu.RUnlock()
+
+		jobID, err := w.queue.Dequeue(ctx, w.id, tenants, dequeueTimeout)
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			slog.Error("dequeue failed", "err", err)
 			continue
 		}
@@ -75,6 +119,26 @@ func (w *Worker) Shutdown(timeout time.Duration) {
 	}
 }
 
+func (w *Worker) loadTenants(ctx context.Context) {
+	tenants, err := storage.GetTenants(ctx, w.db)
+	if err != nil {
+		slog.Error("load tenant weights", "err", err)
+		return
+	}
+	weights := make([]queue.TenantWeight, len(tenants))
+	for i, t := range tenants {
+		w := t.Weight
+		if w <= 0 {
+			w = 100
+		}
+		weights[i] = queue.TenantWeight{ID: t.ID, Weight: w}
+	}
+	w.tenantsMu.Lock()
+	w.tenants = weights
+	w.tenantsMu.Unlock()
+	slog.Info("tenant weights loaded", "count", len(weights))
+}
+
 func (w *Worker) process(ctx context.Context, jobID uuid.UUID) {
 	token := uuid.New()
 	deadline := time.Now().Add(visibilityTimeout + 30*time.Second)
@@ -86,7 +150,6 @@ func (w *Worker) process(ctx context.Context, jobID uuid.UUID) {
 		return
 	}
 	if !ok {
-		// Already claimed by someone else or cancelled.
 		w.queue.RemoveFromProcessing(ctx, w.id, jobID)
 		return
 	}
@@ -140,7 +203,6 @@ func (w *Worker) heartbeat(ctx context.Context, jobID uuid.UUID, token uuid.UUID
 	}
 }
 
-// execute dispatches to the correct handler by job type.
 func execute(ctx context.Context, j *job.Job) error {
 	switch j.Type {
 	case "webhook":

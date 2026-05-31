@@ -1,0 +1,60 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "pulse.fullname" . }}-worker
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "pulse.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: worker
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: worker
+          image: {{ include "pulse.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args: ["--role", "worker", "--shutdown-timeout", {{ .Values.worker.shutdownTimeout | quote }}]
+          {{- include "pulse.envFrom" . | nindent 10 }}
+          resources:
+            {{- toYaml .Values.worker.resources | nindent 12 }}
+---
+{{- if .Values.worker.autoscaling.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "pulse.fullname" . }}-worker-scaler
+  namespace: {{ .Release.Namespace }}
+spec:
+  scaleTargetRef:
+    name: {{ include "pulse.fullname" . }}-worker
+  minReplicaCount: {{ .Values.worker.autoscaling.minReplicas }}
+  maxReplicaCount: {{ .Values.worker.autoscaling.maxReplicas }}
+  pollingInterval: 15
+  cooldownPeriod: 60
+  triggers:
+    - type: redis
+      metadata:
+        address: {{ .Values.redis.addr }}
+        listName: queue:1
+        listLength: {{ .Values.worker.autoscaling.queueDepthPerReplica | quote }}
+    - type: redis
+      metadata:
+        address: {{ .Values.redis.addr }}
+        listName: queue:5
+        listLength: {{ .Values.worker.autoscaling.queueDepthPerReplica | quote }}
+    - type: redis
+      metadata:
+        address: {{ .Values.redis.addr }}
+        listName: queue:10
+        listLength: {{ .Values.worker.autoscaling.queueDepthPerReplica | quote }}
+{{- end }}

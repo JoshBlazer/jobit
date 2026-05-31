@@ -1,0 +1,58 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pulse-api
+  namespace: pulse
+  labels:
+    app: pulse-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pulse-api
+  template:
+    metadata:
+      labels:
+        app: pulse-api
+    spec:
+      containers:
+        - name: api
+          image: pulse:latest
+          args: ["--role", "api"]
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: pulse-config
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pulse-api
+  namespace: pulse
+spec:
+  selector:
+    app: pulse-api
+  ports:
+    - port: 80
+      targetPort: 8080
+  type: ClusterIP

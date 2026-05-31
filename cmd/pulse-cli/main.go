@@ -80,7 +80,7 @@ func cmdReplay(ctx context.Context, db *pgxpool.Pool, q *queue.Queue, args []str
 	if err != nil {
 		fatalf("reset job state: %v", err)
 	}
-	if err := q.Enqueue(ctx, jobID, j.Priority); err != nil {
+	if err := q.Enqueue(ctx, j.TenantID, jobID, j.Priority); err != nil {
 		fatalf("enqueue: %v", err)
 	}
 	fmt.Printf("replayed job %s\n", jobID)
