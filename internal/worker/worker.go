@@ -13,8 +13,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pulse/internal/job"
+	"github.com/pulse/internal/metrics"
 	"github.com/pulse/internal/queue"
 	"github.com/pulse/internal/storage"
+	"github.com/pulse/internal/telemetry"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 const (
@@ -140,12 +144,18 @@ func (w *Worker) loadTenants(ctx context.Context) {
 }
 
 func (w *Worker) process(ctx context.Context, jobID uuid.UUID) {
+	tracer := telemetry.Tracer("pulse/worker")
+	ctx, span := tracer.Start(ctx, "worker.execute")
+	span.SetAttributes(attribute.String("job.id", jobID.String()))
+	defer span.End()
+
 	token := uuid.New()
 	deadline := time.Now().Add(visibilityTimeout + 30*time.Second)
 
 	ok, err := storage.TryClaim(ctx, w.db, jobID, w.id, token, deadline)
 	if err != nil {
-		slog.Error("claim failed", "job_id", jobID, "err", err)
+		telemetry.L(ctx).Error("claim failed", "job_id", jobID, "err", err)
+		span.RecordError(err)
 		w.queue.RemoveFromProcessing(ctx, w.id, jobID)
 		return
 	}
@@ -156,32 +166,58 @@ func (w *Worker) process(ctx context.Context, jobID uuid.UUID) {
 
 	j, err := storage.GetJob(ctx, w.db, jobID)
 	if err != nil {
-		slog.Error("get job after claim", "job_id", jobID, "err", err)
+		telemetry.L(ctx).Error("get job after claim", "job_id", jobID, "err", err)
+		span.RecordError(err)
 		return
 	}
 
+	span.SetAttributes(
+		attribute.String("job.type", j.Type),
+		attribute.String("job.tenant_id", j.TenantID.String()),
+		attribute.Int("job.attempt", j.Attempt),
+	)
+
+	metrics.WorkerInFlight.Inc()
 	hbCtx, hbCancel := context.WithCancel(ctx)
 	go w.heartbeat(hbCtx, jobID, token)
 
-	slog.Info("executing job", "job_id", jobID, "type", j.Type, "attempt", j.Attempt)
+	telemetry.L(ctx).Info("executing job", "job_id", jobID, "type", j.Type, "attempt", j.Attempt, "tenant_id", j.TenantID)
+	start := time.Now()
 	execErr := execute(ctx, j)
+	dur := time.Since(start)
 
 	hbCancel()
+	metrics.WorkerInFlight.Dec()
+
+	tenantID := j.TenantID.String()
 
 	if execErr != nil {
-		slog.Warn("job failed", "job_id", jobID, "err", execErr)
+		telemetry.L(ctx).Warn("job failed", "job_id", jobID, "err", execErr, "tenant_id", tenantID)
+		span.RecordError(execErr)
+		span.SetStatus(codes.Error, execErr.Error())
+
 		var nextRunAt *time.Time
 		if j.ShouldRetry() {
 			t := job.NextRetryAt(j.Attempt+1, j.BackoffSeconds, time.Now())
 			nextRunAt = &t
+			metrics.JobRetriesTotal.WithLabelValues(j.Type, tenantID).Inc()
 		}
+		finalState := "failed"
+		if nextRunAt == nil {
+			finalState = "dead"
+		}
+		metrics.JobDurationSeconds.WithLabelValues(j.Type, finalState, tenantID).Observe(dur.Seconds())
+
 		if err := storage.FailJob(ctx, w.db, jobID, token, execErr.Error(), nextRunAt); err != nil {
-			slog.Error("record job failure", "job_id", jobID, "err", err)
+			telemetry.L(ctx).Error("record job failure", "job_id", jobID, "err", err)
 		}
 	} else {
-		slog.Info("job succeeded", "job_id", jobID)
+		telemetry.L(ctx).Info("job succeeded", "job_id", jobID, "tenant_id", tenantID, "duration_ms", dur.Milliseconds())
+		span.SetStatus(codes.Ok, "")
+		metrics.JobsTotal.WithLabelValues(j.Type, "succeeded", tenantID).Inc()
+		metrics.JobDurationSeconds.WithLabelValues(j.Type, "succeeded", tenantID).Observe(dur.Seconds())
 		if err := storage.CompleteJob(ctx, w.db, jobID, token); err != nil {
-			slog.Error("record job success", "job_id", jobID, "err", err)
+			telemetry.L(ctx).Error("record job success", "job_id", jobID, "err", err)
 		}
 	}
 

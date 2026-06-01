@@ -268,11 +268,11 @@ Update this section at the end of each work session.
 Phase 1 - Core Engine:        [x] COMPLETE — builds, migrations run, end-to-end test passed (job submitted → succeeded)
 Phase 2 - Reliability:        [x] COMPLETE — auth 401/200, idempotency, jitter backoff, cron scheduling, rate limits, admin CLI
 Phase 3 - High Availability:  [x] COMPLETE — etcd leader election, weighted fair queuing, SIGHUP reload, split-brain test, K8s + Helm
-Phase 4 - Observability:      [ ] BLOCKED (waiting on Phase 3)
+Phase 4 - Observability:      [x] COMPLETE — Prometheus (3/3 targets up), Jaeger traces (pulse-api + pulse-worker), Next.js dashboard live at :3000
 ```
 
-Last worked on: 2026-05-31
-Next task: Phase 4 — Prometheus metrics, slog correlation IDs, OpenTelemetry traces (Jaeger), Next.js dashboard (TanStack Query + Tailwind + shadcn/ui + Recharts + WebSocket)
+Last worked on: 2026-06-01
+Next task: All phases complete. Optional: production hardening, WASM job types, DAG support (see README roadmap).
 
 Dev notes:
 - Postgres runs on port 5433 (native Postgres occupies 5432 on this machine)

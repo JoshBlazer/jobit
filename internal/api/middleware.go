@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pulse/internal/storage"
+	"github.com/pulse/internal/telemetry"
 	"github.com/pulse/internal/tenant"
 )
 
@@ -32,6 +34,20 @@ func authMiddleware(db *pgxpool.Pool) func(http.Handler) http.Handler {
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
+}
+
+// correlationMiddleware injects a correlation ID into every request context.
+// It honours an incoming X-Request-ID header; if absent it generates a new UUID.
+func correlationMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		id := r.Header.Get("X-Request-ID")
+		if id == "" {
+			id = uuid.NewString()
+		}
+		w.Header().Set("X-Request-ID", id)
+		ctx := telemetry.WithCorrelationID(r.Context(), id)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 func extractBearerToken(r *http.Request) string {

@@ -567,6 +567,97 @@ func GetTenantByAPIKey(ctx context.Context, db *pgxpool.Pool, apiKey string) (*T
 	return &t, nil
 }
 
+// ---------------------------------------------------------------------------
+// Dashboard / stats queries
+// ---------------------------------------------------------------------------
+
+// CountJobsByState returns a map of state → count across all tenants.
+func CountJobsByState(ctx context.Context, db *pgxpool.Pool) (map[string]int64, error) {
+	rows, err := db.Query(ctx, `SELECT state::text, COUNT(*) FROM jobs GROUP BY state`)
+	if err != nil {
+		return nil, fmt.Errorf("count jobs by state: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]int64{}
+	for rows.Next() {
+		var state string
+		var count int64
+		if err := rows.Scan(&state, &count); err != nil {
+			return nil, err
+		}
+		out[state] = count
+	}
+	return out, rows.Err()
+}
+
+// JobRun is a flattened view of job_runs joined with jobs for dashboard display.
+type JobRun struct {
+	RunID      uuid.UUID  `json:"run_id"`
+	JobID      uuid.UUID  `json:"job_id"`
+	TenantID   uuid.UUID  `json:"tenant_id"`
+	JobType    string     `json:"type"`
+	Attempt    int        `json:"attempt"`
+	State      string     `json:"state"`
+	DurationMs *int       `json:"duration_ms"`
+	StartedAt  time.Time  `json:"started_at"`
+	FinishedAt *time.Time `json:"finished_at"`
+	Error      *string    `json:"error,omitempty"`
+}
+
+func ListRecentRuns(ctx context.Context, db *pgxpool.Pool, limit int) ([]*JobRun, error) {
+	rows, err := db.Query(ctx, `
+		SELECT jr.id, jr.job_id, jr.tenant_id, j.type, jr.attempt,
+		       jr.state::text, jr.duration_ms, jr.started_at, jr.finished_at, jr.error
+		FROM job_runs jr
+		JOIN jobs j ON j.id = jr.job_id
+		ORDER BY jr.started_at DESC
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list recent runs: %w", err)
+	}
+	defer rows.Close()
+	var out []*JobRun
+	for rows.Next() {
+		var r JobRun
+		if err := rows.Scan(&r.RunID, &r.JobID, &r.TenantID, &r.JobType, &r.Attempt,
+			&r.State, &r.DurationMs, &r.StartedAt, &r.FinishedAt, &r.Error); err != nil {
+			return nil, fmt.Errorf("scan run: %w", err)
+		}
+		out = append(out, &r)
+	}
+	return out, rows.Err()
+}
+
+// DeadLetterEntry is a single dead-letter record for dashboard display.
+type DeadLetterEntry struct {
+	JobID        uuid.UUID  `json:"job_id"`
+	TenantID     uuid.UUID  `json:"tenant_id"`
+	AttemptCount int        `json:"attempt_count"`
+	FinalError   *string    `json:"final_error,omitempty"`
+	MovedAt      time.Time  `json:"moved_at"`
+}
+
+func ListDeadLetter(ctx context.Context, db *pgxpool.Pool, limit int) ([]*DeadLetterEntry, error) {
+	rows, err := db.Query(ctx, `
+		SELECT job_id, tenant_id, attempt_count, final_error, moved_at
+		FROM dead_letter
+		ORDER BY moved_at DESC
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list dead letter: %w", err)
+	}
+	defer rows.Close()
+	var out []*DeadLetterEntry
+	for rows.Next() {
+		var e DeadLetterEntry
+		if err := rows.Scan(&e.JobID, &e.TenantID, &e.AttemptCount, &e.FinalError, &e.MovedAt); err != nil {
+			return nil, fmt.Errorf("scan dead letter: %w", err)
+		}
+		out = append(out, &e)
+	}
+	return out, rows.Err()
+}
+
 // GetTenants returns all active tenants with their scheduling weights.
 // Used by workers to build the weighted-fair-queue dequeue set.
 func GetTenants(ctx context.Context, db *pgxpool.Pool) ([]*Tenant, error) {

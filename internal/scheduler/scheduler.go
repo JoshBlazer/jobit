@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/pulse/internal/job"
 	"github.com/pulse/internal/leader"
+	"github.com/pulse/internal/metrics"
 	"github.com/pulse/internal/queue"
 	"github.com/pulse/internal/storage"
 	"github.com/robfig/cron/v3"
@@ -50,6 +51,7 @@ func (s *Scheduler) Run(ctx context.Context, elect *leader.Election) {
 			return
 		}
 		slog.Info("scheduler became leader")
+		metrics.SchedulerIsLeader.Set(1)
 
 		var wg sync.WaitGroup
 		for _, fn := range []func(context.Context){
@@ -66,6 +68,7 @@ func (s *Scheduler) Run(ctx context.Context, elect *leader.Election) {
 		}
 
 		wg.Wait()
+		metrics.SchedulerIsLeader.Set(0)
 		resign()
 		slog.Info("scheduler lost leadership — re-entering election")
 	}
