@@ -88,11 +88,12 @@ func GetJob(ctx context.Context, db *pgxpool.Pool, id uuid.UUID) (*job.Job, erro
 }
 
 // TryClaim atomically claims a job for a worker using SELECT FOR UPDATE SKIP LOCKED.
-// Returns false if the job was already claimed or doesn't exist in pending state.
-func TryClaim(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID, workerID string, token uuid.UUID, deadline time.Time) (bool, error) {
+// Returns (false, uuid.Nil, nil) if the job was already claimed or doesn't exist in pending state.
+// On success, returns the new job_runs row ID so callers can scope later updates to this specific run.
+func TryClaim(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID, workerID string, token uuid.UUID, deadline time.Time) (bool, uuid.UUID, error) {
 	tx, err := db.Begin(ctx)
 	if err != nil {
-		return false, fmt.Errorf("begin tx: %w", err)
+		return false, uuid.Nil, fmt.Errorf("begin tx: %w", err)
 	}
 	defer tx.Rollback(ctx)
 
@@ -102,10 +103,10 @@ func TryClaim(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID, workerID s
 		WHERE id = $1 AND state = 'pending'
 		FOR UPDATE SKIP LOCKED`, jobID).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
-		return false, nil
+		return false, uuid.Nil, nil
 	}
 	if err != nil {
-		return false, fmt.Errorf("lock job row: %w", err)
+		return false, uuid.Nil, fmt.Errorf("lock job row: %w", err)
 	}
 
 	now := time.Now()
@@ -119,27 +120,55 @@ func TryClaim(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID, workerID s
 		WHERE id = $5`,
 		now, workerID, token, deadline, jobID)
 	if err != nil {
-		return false, fmt.Errorf("update claim: %w", err)
+		return false, uuid.Nil, fmt.Errorf("update claim: %w", err)
 	}
 
+	runID := uuid.New()
 	_, err = tx.Exec(ctx, `
 		INSERT INTO job_runs (id, job_id, tenant_id, attempt, started_at, state)
 		SELECT $1, j.id, j.tenant_id, j.attempt, $2, 'claimed'
 		FROM jobs j WHERE j.id = $3`,
-		uuid.New(), now, jobID)
+		runID, now, jobID)
 	if err != nil {
-		return false, fmt.Errorf("insert job_run: %w", err)
+		return false, uuid.Nil, fmt.Errorf("insert job_run: %w", err)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return false, fmt.Errorf("commit claim: %w", err)
+		return false, uuid.Nil, fmt.Errorf("commit claim: %w", err)
 	}
-	return true, nil
+	return true, runID, nil
+}
+
+// MarkRunning transitions a claimed job to running. Called after the job record is fetched
+// and execution is about to begin, so the claimed→running transition is visible to the reaper.
+func MarkRunning(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID, token uuid.UUID) error {
+	_, err := db.Exec(ctx, `
+		UPDATE jobs SET state = 'running'
+		WHERE id = $1 AND claim_token = $2 AND state = 'claimed'`,
+		jobID, token)
+	if err != nil {
+		return fmt.Errorf("mark running %s: %w", jobID, err)
+	}
+	return nil
+}
+
+// ExtendDeadline pushes the visibility deadline forward for a healthy running job.
+// Called by the worker heartbeat loop so the stale-claim reaper doesn't reassign live jobs.
+func ExtendDeadline(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID, token uuid.UUID, deadline time.Time) error {
+	_, err := db.Exec(ctx, `
+		UPDATE jobs SET deadline = $1
+		WHERE id = $2 AND claim_token = $3 AND state IN ('claimed', 'running')`,
+		deadline, jobID, token)
+	if err != nil {
+		return fmt.Errorf("extend deadline %s: %w", jobID, err)
+	}
+	return nil
 }
 
 // CompleteJob marks a job succeeded. If the claim token doesn't match, it's a no-op —
 // the job was reassigned and a stale worker must not overwrite the new owner's state.
-func CompleteJob(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID, token uuid.UUID) error {
+// runID must be the value returned by TryClaim to scope the job_runs update to this execution.
+func CompleteJob(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID, runID uuid.UUID, token uuid.UUID) error {
 	now := time.Now()
 	tag, err := db.Exec(ctx, `
 		UPDATE jobs SET
@@ -159,13 +188,14 @@ func CompleteJob(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID, token u
 	_, err = db.Exec(ctx, `
 		UPDATE job_runs SET state = 'succeeded', finished_at = $1,
 		    duration_ms = EXTRACT(EPOCH FROM ($1 - started_at))::INT * 1000
-		WHERE job_id = $2 AND finished_at IS NULL`,
-		now, jobID)
+		WHERE id = $2`,
+		now, runID)
 	return err
 }
 
 // FailJob records an error and either re-queues the job (after backoff) or moves it to dead state.
-func FailJob(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID, token uuid.UUID, errMsg string, nextRunAt *time.Time) error {
+// runID must be the value returned by TryClaim to scope the job_runs update to this execution.
+func FailJob(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID, runID uuid.UUID, token uuid.UUID, errMsg string, nextRunAt *time.Time) error {
 	tx, err := db.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
@@ -216,8 +246,8 @@ func FailJob(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID, token uuid.
 	_, err = tx.Exec(ctx, `
 		UPDATE job_runs SET state = $1::job_state, finished_at = $2, error = $3,
 		    duration_ms = EXTRACT(EPOCH FROM ($2 - started_at))::INT * 1000
-		WHERE job_id = $4 AND finished_at IS NULL`,
-		newState, now, errMsg, jobID)
+		WHERE id = $4`,
+		newState, now, errMsg, runID)
 	if err != nil {
 		return fmt.Errorf("update job_run: %w", err)
 	}
@@ -277,22 +307,54 @@ func GetStaleClaims(ctx context.Context, db *pgxpool.Pool) ([]*job.Job, error) {
 	return collectJobs(rows)
 }
 
-// RequeueStaleJob moves a stale job back to pending and bumps attempt count.
-func RequeueStaleJob(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID) error {
-	_, err := db.Exec(ctx, `
+// RequeueStaleJob handles a job whose deadline expired without a heartbeat extension.
+// It closes the open job_run, then either moves the job back to pending (if retries remain)
+// or to dead (if attempt+1 >= max_retries). Returns dead=true when the job should not be
+// re-enqueued because it has been routed to dead letter.
+func RequeueStaleJob(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID) (dead bool, err error) {
+	tx, err := db.Begin(ctx)
+	if err != nil {
+		return false, fmt.Errorf("begin tx: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	now := time.Now()
+
+	_, err = tx.Exec(ctx, `
+		UPDATE job_runs SET state = 'failed', finished_at = $1, error = 'worker heartbeat expired',
+		    duration_ms = EXTRACT(EPOCH FROM ($1 - started_at))::INT * 1000
+		WHERE job_id = $2 AND finished_at IS NULL`,
+		now, jobID)
+	if err != nil {
+		return false, fmt.Errorf("close stale run %s: %w", jobID, err)
+	}
+
+	var newState string
+	err = tx.QueryRow(ctx, `
 		UPDATE jobs SET
-			state       = 'pending',
+			state       = CASE WHEN attempt + 1 >= max_retries THEN 'dead'::job_state ELSE 'pending'::job_state END,
 			attempt     = attempt + 1,
 			claim_token = NULL,
 			claimed_at  = NULL,
 			claimed_by  = NULL,
 			deadline    = NULL,
 			last_error  = 'worker heartbeat expired'
-		WHERE id = $1 AND state IN ('claimed', 'running')`, jobID)
+		WHERE id = $1 AND state IN ('claimed', 'running')
+		RETURNING state::text`, jobID).Scan(&newState)
 	if err != nil {
-		return fmt.Errorf("requeue stale job %s: %w", jobID, err)
+		if errors.Is(err, pgx.ErrNoRows) {
+			if commitErr := tx.Commit(ctx); commitErr != nil {
+				return false, fmt.Errorf("commit empty requeue: %w", commitErr)
+			}
+			return false, nil
+		}
+		return false, fmt.Errorf("requeue stale job %s: %w", jobID, err)
 	}
-	return nil
+
+	if err := tx.Commit(ctx); err != nil {
+		return false, fmt.Errorf("commit requeue: %w", err)
+	}
+	return newState == "dead", nil
 }
 
 // MoveToDeadLetter moves a dead job into the dead_letter table.
@@ -345,9 +407,9 @@ func ListJobs(ctx context.Context, db *pgxpool.Pool, f ListFilter) ([]*job.Job, 
 	return collectJobs(rows)
 }
 
-func CancelJob(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID) error {
+func CancelJob(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID, tenantID uuid.UUID) error {
 	tag, err := db.Exec(ctx, `
-		DELETE FROM jobs WHERE id = $1 AND state IN ('pending', 'scheduled')`, jobID)
+		DELETE FROM jobs WHERE id = $1 AND tenant_id = $2 AND state IN ('pending', 'scheduled')`, jobID, tenantID)
 	if err != nil {
 		return fmt.Errorf("cancel job: %w", err)
 	}
@@ -355,6 +417,44 @@ func CancelJob(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID) error {
 		return ErrNotFound
 	}
 	return nil
+}
+
+// GetJobForTenant fetches a job only if it belongs to the given tenant.
+// Returns ErrNotFound if the job does not exist or belongs to a different tenant.
+func GetJobForTenant(ctx context.Context, db *pgxpool.Pool, id uuid.UUID, tenantID uuid.UUID) (*job.Job, error) {
+	row := db.QueryRow(ctx, `
+		SELECT id, tenant_id, type, payload, priority, state,
+		       run_at, claimed_at, claimed_by, claim_token, deadline,
+		       attempt, max_retries, backoff_seconds, idempotency_key,
+		       last_error, created_at, completed_at
+		FROM jobs WHERE id = $1 AND tenant_id = $2`, id, tenantID)
+	j, err := scanJob(row)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("get job for tenant: %w", err)
+	}
+	return j, nil
+}
+
+// GetPendingJobs returns pending jobs whose run_at is due, for the reconciliation loop.
+// Re-enqueueing these is idempotent: TryClaim's SKIP LOCKED guards against double execution.
+func GetPendingJobs(ctx context.Context, db *pgxpool.Pool, limit int) ([]*job.Job, error) {
+	rows, err := db.Query(ctx, `
+		SELECT id, tenant_id, type, payload, priority, state,
+		       run_at, claimed_at, claimed_by, claim_token, deadline,
+		       attempt, max_retries, backoff_seconds, idempotency_key,
+		       last_error, created_at, completed_at
+		FROM jobs
+		WHERE state = 'pending' AND run_at <= NOW()
+		ORDER BY priority, run_at
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("get pending jobs: %w", err)
+	}
+	defer rows.Close()
+	return collectJobs(rows)
 }
 
 // PromoteScheduledToPending moves a scheduled job to pending when its run_at has arrived.

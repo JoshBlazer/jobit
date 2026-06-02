@@ -152,7 +152,7 @@ func (w *Worker) process(ctx context.Context, jobID uuid.UUID) {
 	token := uuid.New()
 	deadline := time.Now().Add(visibilityTimeout + 30*time.Second)
 
-	ok, err := storage.TryClaim(ctx, w.db, jobID, w.id, token, deadline)
+	ok, runID, err := storage.TryClaim(ctx, w.db, jobID, w.id, token, deadline)
 	if err != nil {
 		telemetry.L(ctx).Error("claim failed", "job_id", jobID, "err", err)
 		span.RecordError(err)
@@ -176,6 +176,10 @@ func (w *Worker) process(ctx context.Context, jobID uuid.UUID) {
 		attribute.String("job.tenant_id", j.TenantID.String()),
 		attribute.Int("job.attempt", j.Attempt),
 	)
+
+	if err := storage.MarkRunning(ctx, w.db, jobID, token); err != nil {
+		telemetry.L(ctx).Warn("mark running", "job_id", jobID, "err", err)
+	}
 
 	metrics.WorkerInFlight.Inc()
 	hbCtx, hbCancel := context.WithCancel(ctx)
@@ -206,9 +210,10 @@ func (w *Worker) process(ctx context.Context, jobID uuid.UUID) {
 		if nextRunAt == nil {
 			finalState = "dead"
 		}
+		metrics.JobsTotal.WithLabelValues(j.Type, finalState, tenantID).Inc()
 		metrics.JobDurationSeconds.WithLabelValues(j.Type, finalState, tenantID).Observe(dur.Seconds())
 
-		if err := storage.FailJob(ctx, w.db, jobID, token, execErr.Error(), nextRunAt); err != nil {
+		if err := storage.FailJob(ctx, w.db, jobID, runID, token, execErr.Error(), nextRunAt); err != nil {
 			telemetry.L(ctx).Error("record job failure", "job_id", jobID, "err", err)
 		}
 	} else {
@@ -216,7 +221,7 @@ func (w *Worker) process(ctx context.Context, jobID uuid.UUID) {
 		span.SetStatus(codes.Ok, "")
 		metrics.JobsTotal.WithLabelValues(j.Type, "succeeded", tenantID).Inc()
 		metrics.JobDurationSeconds.WithLabelValues(j.Type, "succeeded", tenantID).Observe(dur.Seconds())
-		if err := storage.CompleteJob(ctx, w.db, jobID, token); err != nil {
+		if err := storage.CompleteJob(ctx, w.db, jobID, runID, token); err != nil {
 			telemetry.L(ctx).Error("record job success", "job_id", jobID, "err", err)
 		}
 	}
@@ -234,6 +239,12 @@ func (w *Worker) heartbeat(ctx context.Context, jobID uuid.UUID, token uuid.UUID
 		case <-ticker.C:
 			if err := w.queue.Heartbeat(ctx, jobID, token.String()); err != nil {
 				slog.Warn("heartbeat failed", "job_id", jobID, "err", err)
+			}
+			// Extend the Postgres deadline so the stale-claim reaper doesn't reassign
+			// a healthy job. TTL matches queue.HeartbeatTTL: 3 missed beats = reassignment.
+			newDeadline := time.Now().Add(queue.HeartbeatTTL)
+			if err := storage.ExtendDeadline(ctx, w.db, jobID, token, newDeadline); err != nil {
+				slog.Warn("extend deadline failed", "job_id", jobID, "err", err)
 			}
 		}
 	}

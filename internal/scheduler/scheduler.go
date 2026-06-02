@@ -19,13 +19,15 @@ import (
 )
 
 const (
-	duePollInterval     = 100 * time.Millisecond
-	staleReapInterval   = 5 * time.Second
-	deadLetterInterval  = 30 * time.Second
-	cronInterval        = 60 * time.Second
-	duePollBatchSize    = 500
-	failedPollBatchSize = 500
-	cronBatchSize       = 200
+	duePollInterval          = 100 * time.Millisecond
+	staleReapInterval        = 5 * time.Second
+	deadLetterInterval       = 30 * time.Second
+	cronInterval             = 60 * time.Second
+	pendingReconcileInterval = 30 * time.Second
+	duePollBatchSize         = 500
+	failedPollBatchSize      = 500
+	cronBatchSize            = 200
+	pendingReconcileBatchSize = 500
 )
 
 type Scheduler struct {
@@ -59,6 +61,7 @@ func (s *Scheduler) Run(ctx context.Context, elect *leader.Election) {
 			s.runStaleReaper,
 			s.runDeadLetterPromoter,
 			s.runCronExpander,
+			s.runPendingReconciler,
 		} {
 			wg.Add(1)
 			go func(f func(context.Context)) {
@@ -143,12 +146,15 @@ func (s *Scheduler) reapStaleClaims(ctx context.Context) {
 	}
 	for _, j := range jobs {
 		slog.Warn("reaping stale job", "job_id", j.ID, "claimed_by", j.ClaimedBy)
-		if err := storage.RequeueStaleJob(ctx, s.db, j.ID); err != nil {
+		dead, err := storage.RequeueStaleJob(ctx, s.db, j.ID)
+		if err != nil {
 			slog.Error("requeue stale job", "job_id", j.ID, "err", err)
 			continue
 		}
-		if err := s.queue.Enqueue(ctx, j.TenantID, j.ID, j.Priority); err != nil {
-			slog.Error("enqueue reaped job", "job_id", j.ID, "err", err)
+		if !dead {
+			if err := s.queue.Enqueue(ctx, j.TenantID, j.ID, j.Priority); err != nil {
+				slog.Error("enqueue reaped job", "job_id", j.ID, "err", err)
+			}
 		}
 	}
 }
@@ -177,6 +183,35 @@ func (s *Scheduler) promoteDeadJobs(ctx context.Context) {
 		if err := storage.MoveToDeadLetter(ctx, s.db, j.ID); err != nil {
 			slog.Error("move to dead letter", "job_id", j.ID, "err", err)
 		}
+	}
+}
+
+func (s *Scheduler) runPendingReconciler(ctx context.Context) {
+	ticker := time.NewTicker(pendingReconcileInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.reconcilePending(ctx)
+		}
+	}
+}
+
+func (s *Scheduler) reconcilePending(ctx context.Context) {
+	jobs, err := storage.GetPendingJobs(ctx, s.db, pendingReconcileBatchSize)
+	if err != nil {
+		slog.Error("reconcile pending jobs", "err", err)
+		return
+	}
+	for _, j := range jobs {
+		if err := s.queue.Enqueue(ctx, j.TenantID, j.ID, j.Priority); err != nil {
+			slog.Error("re-enqueue pending job", "job_id", j.ID, "err", err)
+		}
+	}
+	if len(jobs) > 0 {
+		slog.Info("reconciled pending jobs", "count", len(jobs))
 	}
 }
 

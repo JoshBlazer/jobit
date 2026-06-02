@@ -118,12 +118,13 @@ func (s *Server) handleSubmitJob(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
+	t, _ := tenant.FromContext(r.Context())
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid job id")
 		return
 	}
-	j, err := storage.GetJob(r.Context(), s.db, id)
+	j, err := storage.GetJobForTenant(r.Context(), s.db, id, t.ID)
 	if errors.Is(err, storage.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "job not found")
 		return
@@ -165,12 +166,13 @@ func (s *Server) handleListJobs(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
+	t, _ := tenant.FromContext(r.Context())
 	id, err := uuid.Parse(chi.URLParam(r, "id"))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid job id")
 		return
 	}
-	if err := storage.CancelJob(r.Context(), s.db, id); errors.Is(err, storage.ErrNotFound) {
+	if err := storage.CancelJob(r.Context(), s.db, id, t.ID); errors.Is(err, storage.ErrNotFound) {
 		writeError(w, http.StatusNotFound, "job not found or not cancellable")
 		return
 	} else if err != nil {

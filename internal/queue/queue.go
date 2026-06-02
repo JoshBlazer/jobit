@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	heartbeatTTL     = 15 * time.Second
+	HeartbeatTTL     = 15 * time.Second
 	processingPrefix = "processing:"
 	heartbeatPrefix  = "heartbeat:"
 	pollInterval     = 100 * time.Millisecond
@@ -107,7 +107,7 @@ func (q *Queue) Dequeue(ctx context.Context, workerID string, tenants []TenantWe
 // Heartbeat refreshes the TTL-keyed heartbeat for a running job.
 func (q *Queue) Heartbeat(ctx context.Context, jobID uuid.UUID, token string) error {
 	key := heartbeatPrefix + jobID.String()
-	if err := q.rdb.Set(ctx, key, token, heartbeatTTL).Err(); err != nil {
+	if err := q.rdb.Set(ctx, key, token, HeartbeatTTL).Err(); err != nil {
 		return fmt.Errorf("heartbeat job %s: %w", jobID, err)
 	}
 	return nil
