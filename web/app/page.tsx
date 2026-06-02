@@ -92,7 +92,7 @@ export default function QueuePage() {
       </div>
 
       {/* Priority stat cards */}
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         {(["high", "normal", "low"] as const).map((p) => {
           const count = current?.[p] ?? 0;
           const d = delta(p);
@@ -170,32 +170,39 @@ export default function QueuePage() {
       {data?.jobs_by_state && (
         <div className="rounded-xl border border-zinc-700/60 bg-zinc-900/50 p-5">
           <p className="text-sm font-medium text-zinc-300 mb-5">Jobs by state</p>
-          <div className="grid grid-cols-2 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
             {[
-              { label: "Active", states: ACTIVE_STATES },
-              { label: "Terminal", states: TERMINAL_STATES },
-            ].map(({ label, states }) => {
+              { label: "Active", states: ACTIVE_STATES, showPct: false },
+              { label: "Terminal", states: TERMINAL_STATES, showPct: true },
+            ].map(({ label, states, showPct }) => {
               const entries = states.map((s) => ({ state: s, count: jobs_by_state[s] ?? 0 }))
                 .filter((e) => e.count > 0 || ACTIVE_STATES.includes(e.state));
               const max = Math.max(...entries.map((e) => e.count), 1);
+              const groupTotal = entries.reduce((sum, e) => sum + e.count, 0);
               return (
                 <div key={label}>
                   <p className="text-xs font-semibold text-zinc-500 uppercase tracking-widest mb-3">{label}</p>
                   <div className="space-y-3">
-                    {entries.map(({ state, count }) => (
-                      <div key={state} className="flex items-center gap-3">
-                        <span className={`w-20 text-xs text-right font-medium ${STATE_COLORS[state] ?? "text-zinc-400"}`}>{state}</span>
-                        <div className="flex-1 bg-zinc-800/80 rounded-full h-2 overflow-hidden">
-                          <div
-                            className="h-full rounded-full transition-all duration-700"
-                            style={{ width: `${(count / max) * 100}%`, backgroundColor: STATE_BAR_COLORS[state] ?? "#52525b" }}
-                          />
+                    {entries.map(({ state, count }) => {
+                      const pct = showPct && groupTotal > 0 ? Math.round((count / groupTotal) * 100) : null;
+                      return (
+                        <div key={state} className="flex items-center gap-3">
+                          <span className={`w-20 text-xs text-right font-medium ${STATE_COLORS[state] ?? "text-zinc-400"}`}>{state}</span>
+                          <div className="flex-1 bg-zinc-800/80 rounded-full h-2 overflow-hidden">
+                            <div
+                              className="h-full rounded-full transition-all duration-700"
+                              style={{ width: `${(count / max) * 100}%`, backgroundColor: STATE_BAR_COLORS[state] ?? "#52525b" }}
+                            />
+                          </div>
+                          {pct !== null && (
+                            <span className="text-zinc-600 text-xs w-9 text-right tabular-nums">{pct}%</span>
+                          )}
+                          <span className="text-zinc-200 font-mono font-semibold text-xs w-12 text-right tabular-nums">
+                            {count > 0 ? count.toLocaleString() : <span className="text-zinc-700">—</span>}
+                          </span>
                         </div>
-                        <span className="text-zinc-200 font-mono font-semibold text-xs w-12 text-right tabular-nums">
-                          {count > 0 ? count.toLocaleString() : <span className="text-zinc-700">—</span>}
-                        </span>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               );

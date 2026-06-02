@@ -13,11 +13,11 @@ function relativeTime(dateStr: string): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
-function CopyId({ id }: { id: string }) {
+function CopyId({ id, dim }: { id: string; dim?: boolean }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      className="font-mono text-xs text-zinc-500 hover:text-zinc-200 transition-colors cursor-pointer"
+      className={`font-mono text-xs transition-colors cursor-pointer hover:text-white ${dim ? "text-zinc-600" : "text-zinc-400"}`}
       title={`Copy: ${id}`}
       onClick={() => { navigator.clipboard.writeText(id); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
     >
@@ -143,7 +143,7 @@ export default function DeadLetterPage() {
               {(data.entries ?? []).map((e: DeadLetterEntry) => (
                 <tr key={e.job_id} className={`border-b border-zinc-800/60 hover:bg-zinc-800/30 transition-colors ${replayDone.has(e.job_id) ? "opacity-30" : ""}`}>
                   <td className="px-4 py-3"><CopyId id={e.job_id} /></td>
-                  <td className="px-4 py-3"><CopyId id={e.tenant_id} /></td>
+                  <td className="px-4 py-3"><CopyId id={e.tenant_id} dim /></td>
                   <td className="px-4 py-3">
                     <span className="text-xs font-bold text-amber-400 bg-amber-950/40 border border-amber-900/50 px-2 py-0.5 rounded-full">
                       {e.attempt_count}×

@@ -31,7 +31,7 @@ function CopyId({ id }: { id: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <button
-      className="font-mono text-xs text-zinc-500 hover:text-zinc-200 transition-colors cursor-pointer"
+      className="font-mono text-xs text-zinc-400 hover:text-white transition-colors cursor-pointer"
       title={`Copy: ${id}`}
       onClick={() => { navigator.clipboard.writeText(id); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
     >
