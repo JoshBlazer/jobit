@@ -44,6 +44,10 @@ func main() {
 		cmdReplay(ctx, db, q, flag.Args()[1:])
 	case "force-fail":
 		cmdForceFail(ctx, db, flag.Args()[1:])
+	case "drain":
+		cmdDrain(ctx, rdb)
+	case "dump-scheduler":
+		cmdDumpScheduler(ctx, db, rdb)
 	case "list-dead":
 		cmdListDead(ctx, db)
 	case "queue-depth":
@@ -160,12 +164,151 @@ func cmdQueueDepth(ctx context.Context, rdb *redis.Client) {
 	}
 }
 
+func cmdDrain(ctx context.Context, rdb *redis.Client) {
+	var cursor uint64
+	var totalJobs int64
+	var queueCount int
+
+	for {
+		keys, next, err := rdb.Scan(ctx, cursor, "queue:*", 100).Result()
+		if err != nil {
+			fatalf("scan redis: %v", err)
+		}
+		for _, key := range keys {
+			n, err := rdb.LLen(ctx, key).Result()
+			if err != nil || n == 0 {
+				continue
+			}
+			if err := rdb.Del(ctx, key).Err(); err != nil {
+				fmt.Fprintf(os.Stderr, "warn: del %s: %v\n", key, err)
+				continue
+			}
+			totalJobs += n
+			queueCount++
+		}
+		cursor = next
+		if cursor == 0 {
+			break
+		}
+	}
+
+	if totalJobs == 0 {
+		fmt.Println("queues already empty")
+		return
+	}
+	fmt.Printf("removed %d jobs from %d queues\n", totalJobs, queueCount)
+	fmt.Println("jobs are preserved in postgres and will be re-enqueued by the reconciler when ready")
+}
+
+func cmdDumpScheduler(ctx context.Context, db *pgxpool.Pool, rdb *redis.Client) {
+	fmt.Println("JOB COUNTS")
+	rows, err := db.Query(ctx, `SELECT state::text, COUNT(*) FROM jobs GROUP BY state ORDER BY state`)
+	if err != nil {
+		fatalf("query job counts: %v", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var state string
+		var count int64
+		if err := rows.Scan(&state, &count); err != nil {
+			fatalf("scan job counts: %v", err)
+		}
+		fmt.Printf("  %-12s %d\n", state, count)
+	}
+
+	fmt.Println("\nACTIVE WORKERS")
+	rows2, err := db.Query(ctx, `
+		SELECT id, claimed_by, state::text, claimed_at
+		FROM jobs WHERE state IN ('claimed', 'running')
+		ORDER BY claimed_at`)
+	if err != nil {
+		fatalf("query active workers: %v", err)
+	}
+	defer rows2.Close()
+	activeCount := 0
+	for rows2.Next() {
+		var jobID uuid.UUID
+		var claimedBy *string
+		var state string
+		var claimedAt *time.Time
+		if err := rows2.Scan(&jobID, &claimedBy, &state, &claimedAt); err != nil {
+			fatalf("scan active worker: %v", err)
+		}
+		worker := "(unknown)"
+		if claimedBy != nil {
+			worker = *claimedBy
+		}
+		elapsed := ""
+		if claimedAt != nil {
+			elapsed = fmt.Sprintf("(%s ago)", time.Since(*claimedAt).Round(time.Second))
+		}
+		fmt.Printf("  %-10s  %-36s  worker %.8s…  %s\n", state, jobID, worker, elapsed)
+		activeCount++
+	}
+	if activeCount == 0 {
+		fmt.Println("  (none)")
+	}
+
+	fmt.Println("\nUPCOMING SCHEDULES")
+	rows3, err := db.Query(ctx, `
+		SELECT name, cron, next_run_at FROM schedules
+		WHERE enabled = TRUE ORDER BY next_run_at LIMIT 10`)
+	if err != nil {
+		fatalf("query schedules: %v", err)
+	}
+	defer rows3.Close()
+	schedCount := 0
+	for rows3.Next() {
+		var name, cron string
+		var nextRun time.Time
+		if err := rows3.Scan(&name, &cron, &nextRun); err != nil {
+			fatalf("scan schedule: %v", err)
+		}
+		in := time.Until(nextRun).Round(time.Second)
+		fmt.Printf("  %-24s  %-20s  %s  (in %s)\n", name, cron, nextRun.UTC().Format(time.RFC3339), in)
+		schedCount++
+	}
+	if schedCount == 0 {
+		fmt.Println("  (no enabled schedules)")
+	}
+
+	fmt.Println("\nREDIS QUEUE DEPTHS")
+	var cursor uint64
+	type qd struct{ key string; n int64 }
+	var depths []qd
+	for {
+		keys, next, err := rdb.Scan(ctx, cursor, "queue:*", 100).Result()
+		if err != nil {
+			break
+		}
+		for _, key := range keys {
+			n, err := rdb.LLen(ctx, key).Result()
+			if err != nil || n == 0 {
+				continue
+			}
+			depths = append(depths, qd{key, n})
+		}
+		cursor = next
+		if cursor == 0 {
+			break
+		}
+	}
+	if len(depths) == 0 {
+		fmt.Println("  (all queues empty)")
+	}
+	for _, d := range depths {
+		fmt.Printf("  %-44s  %d\n", d.key, d.n)
+	}
+}
+
 func usage() {
 	fmt.Fprintln(os.Stderr, `pulse-cli — Pulse admin tool
 
 Commands:
   replay <job-id>     re-enqueue a dead-letter job from the beginning
   force-fail <job-id> mark a job dead immediately
+  drain               flush all Redis queues (jobs stay in postgres)
+  dump-scheduler      show job counts, active workers, schedules, queue depths
   list-dead           list dead-letter jobs (most recent 50)
   queue-depth         show pending job counts per priority queue
 

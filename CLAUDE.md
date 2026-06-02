@@ -268,7 +268,7 @@ Update this section at the end of each work session.
 Phase 1 - Core Engine:        [x] COMPLETE — builds, migrations run, end-to-end test passed (job submitted → succeeded)
 Phase 2 - Reliability:        [x] COMPLETE — auth 401/200, idempotency, jitter backoff, cron scheduling, rate limits, admin CLI
 Phase 3 - High Availability:  [x] COMPLETE — etcd leader election, weighted fair queuing, SIGHUP reload, split-brain test, K8s + Helm
-Phase 4 - Observability:      [x] COMPLETE — Prometheus (3/3 targets up), Jaeger traces (pulse-api + pulse-worker), Next.js dashboard live at :3000
+Phase 4 - Observability:      [x] COMPLETE — Prometheus (3/3 targets up), Jaeger traces (pulse-api + pulse-worker), Next.js dashboard live at :3030
 ```
 
 Last worked on: 2026-06-01
