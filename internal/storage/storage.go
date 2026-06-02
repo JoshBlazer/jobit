@@ -527,6 +527,23 @@ func isUniqueViolation(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "23505")
 }
 
+// EnsureJobRunsPartition creates the monthly job_runs child table for the given
+// year/month if it doesn't already exist. Name and bounds are derived purely from
+// time arithmetic, so the fmt.Sprintf into SQL is safe — no user input involved.
+func EnsureJobRunsPartition(ctx context.Context, db *pgxpool.Pool, year int, month time.Month) error {
+	name := fmt.Sprintf("job_runs_%04d_%02d", year, int(month))
+	start := time.Date(year, month, 1, 0, 0, 0, 0, time.UTC)
+	end := time.Date(year, month+1, 1, 0, 0, 0, 0, time.UTC)
+	_, err := db.Exec(ctx, fmt.Sprintf(
+		`CREATE TABLE IF NOT EXISTS %s PARTITION OF job_runs FOR VALUES FROM ('%s') TO ('%s')`,
+		name, start.Format("2006-01-02"), end.Format("2006-01-02"),
+	))
+	if err != nil {
+		return fmt.Errorf("ensure partition %s: %w", name, err)
+	}
+	return nil
+}
+
 // ---------------------------------------------------------------------------
 // Schedule CRUD
 // ---------------------------------------------------------------------------

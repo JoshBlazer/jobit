@@ -19,15 +19,17 @@ import (
 )
 
 const (
-	duePollInterval           = 100 * time.Millisecond
-	staleReapInterval         = 5 * time.Second
-	deadLetterInterval        = 30 * time.Second
-	cronInterval              = 60 * time.Second
-	pendingReconcileInterval  = 30 * time.Second
-	duePollBatchSize          = 500
-	failedPollBatchSize       = 500
-	cronBatchSize             = 200
-	pendingReconcileBatchSize = 500
+	duePollInterval             = 100 * time.Millisecond
+	staleReapInterval           = 5 * time.Second
+	deadLetterInterval          = 30 * time.Second
+	cronInterval                = 60 * time.Second
+	pendingReconcileInterval    = 30 * time.Second
+	partitionMaintainInterval   = 24 * time.Hour
+	duePollBatchSize            = 500
+	failedPollBatchSize         = 500
+	cronBatchSize               = 200
+	pendingReconcileBatchSize   = 500
+	partitionLookaheadMonths    = 3
 )
 
 type Scheduler struct {
@@ -62,6 +64,7 @@ func (s *Scheduler) Run(ctx context.Context, elect *leader.Election) {
 			s.runDeadLetterPromoter,
 			s.runCronExpander,
 			s.runPendingReconciler,
+			s.runPartitionMaintainer,
 		} {
 			wg.Add(1)
 			go func(f func(context.Context)) {
@@ -212,6 +215,33 @@ func (s *Scheduler) reconcilePending(ctx context.Context) {
 	}
 	if len(jobs) > 0 {
 		slog.Info("reconciled pending jobs", "count", len(jobs))
+	}
+}
+
+func (s *Scheduler) runPartitionMaintainer(ctx context.Context) {
+	s.ensurePartitions(ctx)
+
+	ticker := time.NewTicker(partitionMaintainInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			s.ensurePartitions(ctx)
+		}
+	}
+}
+
+func (s *Scheduler) ensurePartitions(ctx context.Context) {
+	now := time.Now().UTC()
+	for i := 1; i <= partitionLookaheadMonths; i++ {
+		target := now.AddDate(0, i, 0)
+		if err := storage.EnsureJobRunsPartition(ctx, s.db, target.Year(), target.Month()); err != nil {
+			slog.Error("ensure job_runs partition", "year", target.Year(), "month", int(target.Month()), "err", err)
+		} else {
+			slog.Debug("job_runs partition ok", "year", target.Year(), "month", int(target.Month()))
+		}
 	}
 }
 
