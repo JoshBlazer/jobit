@@ -66,7 +66,7 @@ func TestTryClaim_SkipLocked(t *testing.T) {
 			<-start // burst all at once
 			token := uuid.New()
 			deadline := time.Now().Add(30 * time.Second)
-			ok, err := storage.TryClaim(ctx, db, j.ID, uuid.NewString(), token, deadline)
+			ok, _, err := storage.TryClaim(ctx, db, j.ID, uuid.NewString(), token, deadline)
 			if err != nil {
 				return
 			}

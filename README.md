@@ -189,7 +189,7 @@ Design targets on a 3-node cluster (4 vCPU / 8 GB RAM each), Postgres 16, Redis 
 
 **Testing**
 - `testing` (standard library) for unit tests
-- `testcontainers-go` for integration tests (real Postgres + Redis)
+- Integration tests dial the docker-compose Postgres/Redis directly and skip if not reachable
 
 **Deployment**
 - Docker multi-stage builds
@@ -275,9 +275,9 @@ make docker-build     # build the Docker image
 Two tiers:
 
 1. **Unit tests** — pure logic, no I/O. Run in < 5 seconds. `make test-unit`
-2. **Integration tests** — real Postgres + Redis via testcontainers. Run in < 90 seconds. `make test-integration`
+2. **Integration tests** — dial Postgres and Redis directly; skip gracefully if the stack isn't up. Run locally with `make up && make migrate-up && make test-integration`. `make test-integration`
 
-CI runs both on every push and pull request.
+CI runs both on every push and pull request against real Postgres 16 and Redis 7 service containers.
 
 ---
 

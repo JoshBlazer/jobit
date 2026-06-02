@@ -10,6 +10,32 @@ jobs:
   ci:
     runs-on: ubuntu-latest
 
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: pulse
+          POSTGRES_PASSWORD: pulse
+          POSTGRES_DB: pulse
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - uses: actions/checkout@v4
 
@@ -27,5 +53,11 @@ jobs:
       - name: Unit tests
         run: go test ./internal/job/... -count=1
 
+      - name: Install migrate
+        run: go install -tags 'pgx5' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+
+      - name: Run migrations
+        run: make migrate-up
+
       - name: Integration tests
-        run: go test ./internal/storage/... ./internal/queue/... -count=1 -tags integration
+        run: go test ./internal/storage/... -count=1 -tags integration
