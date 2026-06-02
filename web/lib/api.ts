@@ -1,10 +1,14 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 const TOKEN = process.env.NEXT_PUBLIC_API_TOKEN ?? "dev-token";
 
-async function apiFetch<T>(path: string): Promise<T> {
+async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
-    headers: { Authorization: `Bearer ${TOKEN}` },
+    headers: {
+      Authorization: `Bearer ${TOKEN}`,
+      "Content-Type": "application/json",
+    },
     cache: "no-store",
+    ...options,
   });
   if (!res.ok) throw new Error(`${path} → ${res.status}`);
   return res.json();
@@ -20,6 +24,7 @@ export type QueueDepth = {
 export type StatsResponse = {
   queues: QueueDepth[];
   jobs_by_state: Record<string, number>;
+  timestamp?: number;
 };
 
 export type JobRun = {
@@ -44,9 +49,14 @@ export type DeadLetterEntry = {
 };
 
 export const fetchStats = () => apiFetch<StatsResponse>("/v1/stats");
+
 export const fetchRuns = (limit = 50) =>
   apiFetch<{ runs: JobRun[]; count: number }>(`/v1/stats/runs?limit=${limit}`);
+
 export const fetchDeadLetter = (limit = 50) =>
   apiFetch<{ entries: DeadLetterEntry[]; count: number }>(
     `/v1/stats/dead-letter?limit=${limit}`
   );
+
+export const replayJob = (jobId: string) =>
+  apiFetch<unknown>(`/v1/jobs/${jobId}/replay`, { method: "POST" });

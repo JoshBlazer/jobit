@@ -49,6 +49,7 @@ func New(db *pgxpool.Pool, q *queue.Queue, rdb *redis.Client, limiter *ratelimit
 		r.Get("/jobs", s.handleListJobs)
 		r.Get("/jobs/{id}", s.handleGetJob)
 		r.Post("/jobs/{id}/cancel", s.handleCancelJob)
+		r.Post("/jobs/{id}/replay", s.handleReplayJob)
 
 		r.Post("/schedules", s.handleCreateSchedule)
 		r.Get("/schedules", s.handleListSchedules)

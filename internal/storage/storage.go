@@ -419,6 +419,29 @@ func CancelJob(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID, tenantID 
 	return nil
 }
 
+// ReplayJob resets a dead job back to pending (attempt 0) so it will be re-executed.
+// Only jobs in 'dead' state belonging to the given tenant can be replayed.
+func ReplayJob(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID, tenantID uuid.UUID) (*job.Job, error) {
+	tag, err := db.Exec(ctx, `
+		UPDATE jobs SET
+			state       = 'pending',
+			attempt     = 0,
+			last_error  = NULL,
+			claim_token = NULL,
+			claimed_at  = NULL,
+			claimed_by  = NULL,
+			deadline    = NULL
+		WHERE id = $1 AND tenant_id = $2 AND state = 'dead'`,
+		jobID, tenantID)
+	if err != nil {
+		return nil, fmt.Errorf("replay job %s: %w", jobID, err)
+	}
+	if tag.RowsAffected() == 0 {
+		return nil, ErrNotFound
+	}
+	return GetJob(ctx, db, jobID)
+}
+
 // GetJobForTenant fetches a job only if it belongs to the given tenant.
 // Returns ErrNotFound if the job does not exist or belongs to a different tenant.
 func GetJobForTenant(ctx context.Context, db *pgxpool.Pool, id uuid.UUID, tenantID uuid.UUID) (*job.Job, error) {

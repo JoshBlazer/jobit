@@ -183,6 +183,29 @@ func (s *Server) handleCancelJob(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleReplayJob(w http.ResponseWriter, r *http.Request) {
+	t, _ := tenant.FromContext(r.Context())
+	id, err := uuid.Parse(chi.URLParam(r, "id"))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid job id")
+		return
+	}
+	j, err := storage.ReplayJob(r.Context(), s.db, id, t.ID)
+	if errors.Is(err, storage.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "job not found or not in dead state")
+		return
+	}
+	if err != nil {
+		slog.Error("replay job", "job_id", id, "err", err)
+		writeError(w, http.StatusInternalServerError, "failed to replay job")
+		return
+	}
+	if err := s.queue.Enqueue(r.Context(), t.ID, id, j.Priority); err != nil {
+		slog.Error("enqueue replayed job", "job_id", id, "err", err)
+	}
+	writeJSON(w, http.StatusOK, j)
+}
+
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
