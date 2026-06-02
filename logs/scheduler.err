@@ -1,1 +1,0 @@
-{"level":"warn","ts":"2026-06-02T00:04:32.632135+0100","logger":"etcd-client","caller":"v3@v3.6.11/lease.go:602","msg":"error occurred during lease keep alive request sending","error":"EOF"}
