@@ -104,12 +104,24 @@ export default function QueuePage() {
                 ))}
               </defs>
               <CartesianGrid strokeDasharray="3 3" stroke="#27272a" />
-              <XAxis dataKey="t" tick={{ fill: "#71717a", fontSize: 11 }} interval="preserveStartEnd" />
+              <XAxis
+                dataKey="t"
+                tick={{ fill: "#71717a", fontSize: 11 }}
+                interval={Math.max(0, Math.floor(history.length / 6) - 1)}
+              />
               <YAxis tick={{ fill: "#71717a", fontSize: 11 }} allowDecimals={false} width={32} />
               <Tooltip contentStyle={{ background: "#18181b", border: "1px solid #3f3f46", fontSize: 12 }} />
               <Legend
-                wrapperStyle={{ fontSize: 12, color: "#a1a1aa" }}
-                formatter={(v) => <span style={{ color: PRIORITY_COLORS[v] }}>{v}</span>}
+                content={() => (
+                  <div style={{ display: "flex", justifyContent: "center", gap: "20px", fontSize: "12px", marginTop: "4px" }}>
+                    {(["high", "normal", "low"] as const).map((p) => (
+                      <span key={p} style={{ display: "flex", alignItems: "center", gap: "6px", color: "#a1a1aa" }}>
+                        <span style={{ display: "inline-block", width: "12px", height: "2px", backgroundColor: PRIORITY_COLORS[p], borderRadius: "1px" }} />
+                        <span style={{ color: PRIORITY_COLORS[p] }}>{p}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
               />
               {(["high", "normal", "low"] as const).map((p) => (
                 <Area key={p} type="monotone" dataKey={p} stroke={PRIORITY_COLORS[p]}
