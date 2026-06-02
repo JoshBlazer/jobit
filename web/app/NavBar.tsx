@@ -14,18 +14,19 @@ export function NavBar() {
     href === "/" ? pathname === "/" : pathname.startsWith(href);
 
   return (
-    <nav className="border-b border-zinc-800 px-6 py-0 flex items-stretch gap-1 text-sm">
-      <span className="font-semibold text-white mr-4 py-3 tracking-tight flex items-center">
-        ⚡ Sluice
+    <nav className="border-b border-zinc-800 bg-zinc-950/80 backdrop-blur-sm sticky top-0 z-10 px-6 flex items-stretch gap-1 text-sm">
+      <span className="font-bold text-white mr-5 py-3.5 tracking-tight flex items-center gap-1.5 text-base">
+        <span className="text-orange-400">⚡</span>
+        <span>Sluice</span>
       </span>
       {LINKS.map(({ href, label }) => (
         <Link
           key={href}
           href={href}
-          className={`py-3 px-3 border-b-2 transition-colors ${
+          className={`py-3.5 px-3 border-b-2 transition-all text-sm font-medium ${
             isActive(href)
               ? "border-blue-500 text-white"
-              : "border-transparent text-zinc-400 hover:text-zinc-200"
+              : "border-transparent text-zinc-500 hover:text-zinc-200 hover:border-zinc-600"
           }`}
         >
           {label}
