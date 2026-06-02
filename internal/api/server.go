@@ -32,6 +32,7 @@ func New(db *pgxpool.Pool, q *queue.Queue, rdb *redis.Client, limiter *ratelimit
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
 	r.Use(middleware.Recoverer)
+	r.Use(corsMiddleware)
 	r.Use(correlationMiddleware)
 
 	// Health + observability (no auth)
