@@ -14,14 +14,14 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/pulse/internal/api"
-	"github.com/pulse/internal/leader"
-	"github.com/pulse/internal/queue"
-	"github.com/pulse/internal/ratelimit"
-	"github.com/pulse/internal/scheduler"
-	"github.com/pulse/internal/storage"
-	"github.com/pulse/internal/telemetry"
-	"github.com/pulse/internal/worker"
+	"github.com/sluice/internal/api"
+	"github.com/sluice/internal/leader"
+	"github.com/sluice/internal/queue"
+	"github.com/sluice/internal/ratelimit"
+	"github.com/sluice/internal/scheduler"
+	"github.com/sluice/internal/storage"
+	"github.com/sluice/internal/telemetry"
+	"github.com/sluice/internal/worker"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -38,13 +38,13 @@ type config struct {
 
 func loadConfig() config {
 	var c config
-	flag.StringVar(&c.role, "role", env("PULSE_ROLE", ""), "role to run: api | scheduler | worker")
-	flag.StringVar(&c.postgresURL, "postgres-url", env("PULSE_POSTGRES_URL", "postgres://pulse:pulse@localhost:5433/pulse?sslmode=disable"), "postgres connection string")
-	flag.StringVar(&c.redisAddr, "redis-addr", env("PULSE_REDIS_ADDR", "localhost:6379"), "redis address")
-	flag.StringVar(&c.etcdEndpoints, "etcd-endpoints", env("PULSE_ETCD_ENDPOINTS", "localhost:2379"), "comma-separated etcd endpoints")
-	flag.StringVar(&c.otlpEndpoint, "otlp-endpoint", env("PULSE_OTLP_ENDPOINT", "localhost:4318"), "OTLP HTTP trace endpoint")
-	flag.IntVar(&c.httpPort, "port", envInt("PULSE_PORT", 8080), "http port (api role only)")
-	flag.IntVar(&c.metricsPort, "metrics-port", envInt("PULSE_METRICS_PORT", 0), "prometheus metrics port (scheduler=9091, worker=9092 by default)")
+	flag.StringVar(&c.role, "role", env("sluice_ROLE", ""), "role to run: api | scheduler | worker")
+	flag.StringVar(&c.postgresURL, "postgres-url", env("sluice_POSTGRES_URL", "postgres://pulse:pulse@localhost:5433/pulse?sslmode=disable"), "postgres connection string")
+	flag.StringVar(&c.redisAddr, "redis-addr", env("sluice_REDIS_ADDR", "localhost:6379"), "redis address")
+	flag.StringVar(&c.etcdEndpoints, "etcd-endpoints", env("sluice_ETCD_ENDPOINTS", "localhost:2379"), "comma-separated etcd endpoints")
+	flag.StringVar(&c.otlpEndpoint, "otlp-endpoint", env("sluice_OTLP_ENDPOINT", "localhost:4318"), "OTLP HTTP trace endpoint")
+	flag.IntVar(&c.httpPort, "port", envInt("sluice_PORT", 8080), "http port (api role only)")
+	flag.IntVar(&c.metricsPort, "metrics-port", envInt("sluice_METRICS_PORT", 0), "prometheus metrics port (scheduler=9091, worker=9092 by default)")
 	flag.DurationVar(&c.shutdownTimeout, "shutdown-timeout", 30*time.Second, "graceful shutdown timeout")
 	flag.Parse()
 	return c

@@ -1,4 +1,4 @@
-module github.com/pulse
+module github.com/sluice
 
 go 1.25.0
 

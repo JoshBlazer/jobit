@@ -11,8 +11,8 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/pulse/internal/queue"
-	"github.com/pulse/internal/ratelimit"
+	"github.com/sluice/internal/queue"
+	"github.com/sluice/internal/ratelimit"
 	"github.com/redis/go-redis/v9"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 )
@@ -63,7 +63,7 @@ func New(db *pgxpool.Pool, q *queue.Queue, rdb *redis.Client, limiter *ratelimit
 
 	s.server = &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
-		Handler:      otelhttp.NewHandler(r, "pulse-api"),
+		Handler:      otelhttp.NewHandler(r, "sluice-api"),
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,

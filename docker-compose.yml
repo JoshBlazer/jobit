@@ -2,16 +2,16 @@ services:
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_DB: pulse
-      POSTGRES_USER: pulse
-      POSTGRES_PASSWORD: pulse
+      POSTGRES_DB: sluice
+      POSTGRES_USER: sluice
+      POSTGRES_PASSWORD: sluice
       POSTGRES_HOST_AUTH_METHOD: trust
     ports:
       - "5433:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U pulse"]
+      test: ["CMD-SHELL", "pg_isready -U sluice"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -39,7 +39,7 @@ services:
       - --listen-peer-urls=http://0.0.0.0:2380
       - --initial-advertise-peer-urls=http://etcd:2380
       - --initial-cluster=etcd0=http://etcd:2380
-      - --initial-cluster-token=pulse-etcd
+      - --initial-cluster-token=sluice-etcd
       - --initial-cluster-state=new
     ports:
       - "2379:2379"

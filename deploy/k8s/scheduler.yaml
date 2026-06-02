@@ -3,15 +3,15 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: pulse-scheduler
-  namespace: pulse
+  name: Sluice-scheduler
+  namespace: Sluice
   labels:
-    app: pulse-scheduler
+    app: Sluice-scheduler
 spec:
   replicas: 3
   selector:
     matchLabels:
-      app: pulse-scheduler
+      app: Sluice-scheduler
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -20,15 +20,15 @@ spec:
   template:
     metadata:
       labels:
-        app: pulse-scheduler
+        app: Sluice-scheduler
     spec:
       containers:
         - name: scheduler
-          image: pulse:latest
+          image: Sluice:latest
           args: ["--role", "scheduler"]
           envFrom:
             - configMapRef:
-                name: pulse-config
+                name: Sluice-config
           resources:
             requests:
               cpu: 50m

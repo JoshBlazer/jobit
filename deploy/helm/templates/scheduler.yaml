@@ -1,10 +1,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "pulse.fullname" . }}-scheduler
+  name: {{ include "Sluice.fullname" . }}-scheduler
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "pulse.labels" . | nindent 4 }}
+    {{- include "Sluice.labels" . | nindent 4 }}
     app.kubernetes.io/component: scheduler
 spec:
   replicas: {{ .Values.scheduler.replicas }}
@@ -25,9 +25,9 @@ spec:
     spec:
       containers:
         - name: scheduler
-          image: {{ include "pulse.image" . }}
+          image: {{ include "Sluice.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["--role", "scheduler"]
-          {{- include "pulse.envFrom" . | nindent 10 }}
+          {{- include "Sluice.envFrom" . | nindent 10 }}
           resources:
             {{- toYaml .Values.scheduler.resources | nindent 12 }}

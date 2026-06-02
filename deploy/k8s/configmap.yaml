@@ -1,10 +1,10 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: pulse-config
-  namespace: pulse
+  name: Sluice-config
+  namespace: Sluice
 data:
-  PULSE_POSTGRES_URL: "postgres://pulse:pulse@postgres:5432/pulse?sslmode=disable"
-  PULSE_REDIS_ADDR: "redis:6379"
-  PULSE_ETCD_ENDPOINTS: "etcd:2379"
-  PULSE_PORT: "8080"
+  Sluice_POSTGRES_URL: "postgres://Sluice:Sluice@postgres:5432/Sluice?sslmode=disable"
+  Sluice_REDIS_ADDR: "redis:6379"
+  Sluice_ETCD_ENDPOINTS: "etcd:2379"
+  Sluice_PORT: "8080"

@@ -1,18 +1,18 @@
-# Pulse
+# Sluice
 
 > A horizontally scalable, durable job scheduler written in Go. At-least-once delivery, exponential backoff, leader-elected HA, and a real dashboard.
 
 [![Go Version](https://img.shields.io/badge/go-1.25+-00ADD8?logo=go)](https://golang.org)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![CI](https://github.com/JoshBlazer/jobit/actions/workflows/ci.yml/badge.svg)](https://github.com/JoshBlazer/jobit/actions/workflows/ci.yml)
+[![CI](https://github.com/JoshBlazer/Sluice/actions/workflows/ci.yml/badge.svg)](https://github.com/JoshBlazer/Sluice/actions/workflows/ci.yml)
 
-Pulse is a from-scratch alternative to Sidekiq, Celery, or AWS SQS + EventBridge for teams that want the durability of a relational store, the throughput of an in-memory queue, and the operational simplicity of a single Go binary per role.
+Sluice is a from-scratch alternative to Sidekiq, Celery, or AWS SQS + EventBridge for teams that want the durability of a relational store, the throughput of an in-memory queue, and the operational simplicity of a single Go binary per role.
 
 ---
 
-## Why Pulse?
+## Why Sluice?
 
-Most teams reach for either a Redis-only queue (fast but loses jobs on crash) or a full workflow engine like Temporal (powerful but heavy). Pulse occupies the middle: Postgres as the durable source of truth, Redis as the hot path, and a clean separation between scheduling and execution.
+Most teams reach for either a Redis-only queue (fast but loses jobs on crash) or a full workflow engine like Temporal (powerful but heavy). Sluice occupies the middle: Postgres as the durable source of truth, Redis as the hot path, and a clean separation between scheduling and execution.
 
 - **Durable by default** — jobs survive crashes, network partitions, and worker death
 - **High throughput** — designed for 10k+ jobs/sec on commodity hardware
@@ -202,10 +202,10 @@ Design targets on a 3-node cluster (4 vCPU / 8 GB RAM each), Postgres 16, Redis 
 ## Project Structure
 
 ```
-pulse/
+sluice/
 ├── cmd/
-│   ├── pulse/            # Single binary — run with --role api|scheduler|worker
-│   └── pulse-cli/        # Admin CLI
+│   ├── sluice/            # Single binary — run with --role api|scheduler|worker
+│   └── sluice-cli/        # Admin CLI
 ├── internal/
 │   ├── api/              # HTTP handlers, middleware, WebSocket
 │   ├── scheduler/        # Scheduling, cron, leader election
@@ -240,7 +240,7 @@ pulse/
 
 ```bash
 # Clone and install tools
-git clone https://github.com/JoshBlazer/jobit
+git clone https://github.com/JoshBlazer/Sluice
 cd jobit
 make bootstrap        # installs migrate, downloads Go modules
 
@@ -292,7 +292,7 @@ docker-compose -f deploy/docker/docker-compose.prod.yml up -d
 ### Kubernetes
 
 ```bash
-helm install pulse deploy/helm/pulse \
+helm install sluice deploy/helm/sluice \
   --set postgres.password=$PG_PASSWORD \
   --set workers.replicas=10
 ```
@@ -312,19 +312,19 @@ Recommended production layout:
 
 ```bash
 # Re-enqueue a dead-letter job
-pulse-cli replay <job-id>
+sluice-cli replay <job-id>
 
 # Mark a stuck job as dead immediately
-pulse-cli force-fail <job-id>
+sluice-cli force-fail <job-id>
 
 # Flush all Redis queues (jobs stay in Postgres, reconciler re-enqueues when ready)
-pulse-cli drain
+sluice-cli drain
 
 # Show job counts, active workers, upcoming schedules, and queue depths
-pulse-cli dump-scheduler
+sluice-cli dump-scheduler
 
 # List the 50 most recent dead-letter entries
-pulse-cli list-dead
+sluice-cli list-dead
 ```
 
 ---

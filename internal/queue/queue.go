@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/pulse/internal/job"
+	"github.com/sluice/internal/job"
 	"github.com/redis/go-redis/v9"
 )
 

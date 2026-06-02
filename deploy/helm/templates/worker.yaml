@@ -1,10 +1,10 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "pulse.fullname" . }}-worker
+  name: {{ include "Sluice.fullname" . }}-worker
   namespace: {{ .Release.Namespace }}
   labels:
-    {{- include "pulse.labels" . | nindent 4 }}
+    {{- include "Sluice.labels" . | nindent 4 }}
     app.kubernetes.io/component: worker
 spec:
   replicas: {{ .Values.worker.replicas }}
@@ -21,10 +21,10 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: worker
-          image: {{ include "pulse.image" . }}
+          image: {{ include "Sluice.image" . }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           args: ["--role", "worker", "--shutdown-timeout", {{ .Values.worker.shutdownTimeout | quote }}]
-          {{- include "pulse.envFrom" . | nindent 10 }}
+          {{- include "Sluice.envFrom" . | nindent 10 }}
           resources:
             {{- toYaml .Values.worker.resources | nindent 12 }}
 ---
@@ -32,11 +32,11 @@ spec:
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
 metadata:
-  name: {{ include "pulse.fullname" . }}-worker-scaler
+  name: {{ include "Sluice.fullname" . }}-worker-scaler
   namespace: {{ .Release.Namespace }}
 spec:
   scaleTargetRef:
-    name: {{ include "pulse.fullname" . }}-worker
+    name: {{ include "Sluice.fullname" . }}-worker
   minReplicaCount: {{ .Values.worker.autoscaling.minReplicas }}
   maxReplicaCount: {{ .Values.worker.autoscaling.maxReplicas }}
   pollingInterval: 15

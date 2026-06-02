@@ -9,15 +9,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pulse/internal/job"
-	"github.com/pulse/internal/queue"
-	"github.com/pulse/internal/storage"
+	"github.com/sluice/internal/job"
+	"github.com/sluice/internal/queue"
+	"github.com/sluice/internal/storage"
 	"github.com/redis/go-redis/v9"
 )
 
 func main() {
-	postgresURL := flag.String("postgres-url", env("PULSE_POSTGRES_URL", "postgres://pulse:pulse@localhost:5433/pulse?sslmode=disable"), "postgres DSN")
-	redisAddr := flag.String("redis-addr", env("PULSE_REDIS_ADDR", "localhost:6379"), "redis address")
+	postgresURL := flag.String("postgres-url", env("sluice_POSTGRES_URL", "postgres://pulse:pulse@localhost:5433/pulse?sslmode=disable"), "postgres DSN")
+	redisAddr := flag.String("redis-addr", env("sluice_REDIS_ADDR", "localhost:6379"), "redis address")
 	flag.Parse()
 
 	if flag.NArg() == 0 {

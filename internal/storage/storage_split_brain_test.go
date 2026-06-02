@@ -11,15 +11,15 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pulse/internal/job"
-	"github.com/pulse/internal/storage"
+	"github.com/sluice/internal/job"
+	"github.com/sluice/internal/storage"
 )
 
 // TestTryClaim_SkipLocked verifies that concurrent schedulers cannot double-claim the same job.
 // This test requires the Docker stack to be running.
 // Run with: go test -tags integration ./internal/storage/... -run TestTryClaim_SkipLocked
 func TestTryClaim_SkipLocked(t *testing.T) {
-	const dsn = "postgres://pulse:pulse@localhost:5433/pulse?sslmode=disable"
+	const dsn = "postgres://sluice:sluice@localhost:5433/sluice?sslmode=disable"
 	ctx := context.Background()
 
 	db, err := pgxpool.New(ctx, dsn)

@@ -1,4 +1,4 @@
-# Pulse — Build Instructions for Claude
+# Sluice — Build Instructions for Claude
 
 This file governs how Claude approaches building this project. Read it at the start of every session. Follow it even when a deviation seems reasonable in the moment.
 
@@ -6,7 +6,7 @@ This file governs how Claude approaches building this project. Read it at the st
 
 ## What We're Building
 
-**Pulse** is a horizontally scalable, durable job scheduler in Go. The full design is in `README.md` and `architecture.md`. Read both before touching code.
+**Sluice** is a horizontally scalable, durable job scheduler in Go. The full design is in `README.md` and `architecture.md`. Read both before touching code.
 
 The short version: Postgres is the source of truth, Redis is the hot queue, and a single Go binary runs as `api`, `scheduler`, or `worker` based on a `--role` flag.
 
@@ -25,7 +25,7 @@ Work strictly in phase order. Do not start Phase 2 until Phase 1 is complete and
 Deliverables, in order:
 
 1. **Project scaffold**
-   - `go mod init` with module path `github.com/pulse`
+   - `go mod init` with module path `github.com/sluice`
    - Directory structure per `README.md`: `cmd/`, `internal/`, `migrations/`, `proto/`, `deploy/`, `web/`
    - `docker-compose.yml` with Postgres 16, Redis 7. No etcd yet.
    - `Makefile` with targets: `dev`, `test`, `lint`, `migrate-up`, `docker-build`
@@ -80,7 +80,7 @@ Deliverables, in order:
    - Persist to Postgres first, then enqueue to Redis for immediate jobs
    - Return 200 only after Postgres commit
 
-9. **Single binary entrypoint** (`cmd/pulse/` or `main.go`)
+9. **Single binary entrypoint** (`cmd/sluice/` or `main.go`)
    - `--role api | scheduler | worker`
    - Shared config struct loaded from env vars + optional config file
 
@@ -105,7 +105,7 @@ Start only when Phase 1 is complete.
 5. **`job_runs` partitioning** — add monthly partitions for `job_runs`. Write a migration.
 6. **Auth** — JWT-based. Per-tenant API keys stored in a `tenants` table. Middleware reads the `Authorization` header and sets tenant context.
 7. **Per-tenant rate limits** — token bucket in Redis at key `ratelimit:{tenant_id}`. Enforce in `POST /v1/jobs`.
-8. **Admin CLI** (`cmd/pulse-cli/`) — `replay <job-id>`, `drain`, `force-fail <job-id>`, `dump-scheduler`
+8. **Admin CLI** (`cmd/sluice-cli/`) — `replay <job-id>`, `drain`, `force-fail <job-id>`, `dump-scheduler`
 
 **Phase 2 is done when:**
 - Duplicate idempotency keys return the original job, not a 409
@@ -120,7 +120,7 @@ Start only when Phase 1 is complete.
 
 Start only when Phase 2 is complete.
 
-1. **etcd leader election** — add etcd to `docker-compose.yml`. Scheduler acquires a 5-second TTL lease at `/pulse/scheduler/leader`. Renews every 1.5 seconds. Non-leaders are hot standbys: keep DB connection warm, do nothing else.
+1. **etcd leader election** — add etcd to `docker-compose.yml`. Scheduler acquires a 5-second TTL lease at `/sluice/scheduler/leader`. Renews every 1.5 seconds. Non-leaders are hot standbys: keep DB connection warm, do nothing else.
 2. **Split-brain safety** — `GetDueJobs` already uses `SKIP LOCKED`. Verify this holds under dual-leader conditions with a test.
 3. **Hot config reload** — `SIGHUP` reloads tenant configs and rate limits without restart.
 4. **Weighted fair queuing** — within a priority lane, workers iterate tenants in proportion to their weight. Default weight 100.
@@ -210,12 +210,12 @@ When you notice any of the above, stop. Ask whether it's actually needed now.
 ## File Structure (follow exactly)
 
 ```
-pulse/
+sluice/
 ├── cmd/
 │   ├── api/
 │   ├── scheduler/
 │   ├── worker/
-│   └── pulse-cli/
+│   └── sluice-cli/
 ├── internal/
 │   ├── api/
 │   ├── scheduler/
@@ -268,7 +268,7 @@ Update this section at the end of each work session.
 Phase 1 - Core Engine:        [x] COMPLETE — builds, migrations run, end-to-end test passed (job submitted → succeeded)
 Phase 2 - Reliability:        [x] COMPLETE — auth 401/200, idempotency, jitter backoff, cron scheduling, rate limits, admin CLI
 Phase 3 - High Availability:  [x] COMPLETE — etcd leader election, weighted fair queuing, SIGHUP reload, split-brain test, K8s + Helm
-Phase 4 - Observability:      [x] COMPLETE — Prometheus (3/3 targets up), Jaeger traces (pulse-api + pulse-worker), Next.js dashboard live at :3030
+Phase 4 - Observability:      [x] COMPLETE — Prometheus (3/3 targets up), Jaeger traces (sluice-api + sluice-worker), Next.js dashboard live at :3030
 ```
 
 Last worked on: 2026-06-01
@@ -280,7 +280,7 @@ Dev notes:
 - Race detector (-race) requires MinGW/GCC on Windows — skip locally, runs in CI
 - Go binary: C:\Program Files\Go\bin\go
 - migrate CLI installed with: go install -tags 'pgx5' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
-- migrate URL format: pgx5://pulse:pulse@localhost:5433/pulse?sslmode=disable
+- migrate URL format: pgx5://sluice:sluice@localhost:5433/sluice?sslmode=disable
 - etcd runs on port 2379 (quay.io/coreos/etcd:v3.5.16), single-node for local dev
 - Queue keys are now per-tenant: queue:{priority}:{tenantID} — flush Redis when switching from Phase 2 data
 - Split-brain test: go test -tags integration ./internal/storage/... -run TestTryClaim_SkipLocked (needs Docker stack running)

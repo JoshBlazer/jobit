@@ -10,11 +10,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pulse/internal/job"
-	"github.com/pulse/internal/leader"
-	"github.com/pulse/internal/metrics"
-	"github.com/pulse/internal/queue"
-	"github.com/pulse/internal/storage"
+	"github.com/sluice/internal/job"
+	"github.com/sluice/internal/leader"
+	"github.com/sluice/internal/metrics"
+	"github.com/sluice/internal/queue"
+	"github.com/sluice/internal/storage"
 	"github.com/robfig/cron/v3"
 )
 

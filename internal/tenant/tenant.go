@@ -5,7 +5,7 @@ import (
 	"errors"
 
 	"github.com/google/uuid"
-	"github.com/pulse/internal/storage"
+	"github.com/sluice/internal/storage"
 )
 
 type Tenant = storage.Tenant

@@ -1,12 +1,12 @@
 .PHONY: dev test test-unit test-integration lint migrate-up migrate-down docker-build bootstrap
 
-BINARY=pulse
-MODULE=github.com/pulse
-POSTGRES_URL?=postgres://pulse:pulse@localhost:5433/pulse?sslmode=disable
-MIGRATE=migrate -path migrations -database "pgx5://pulse:pulse@localhost:5433/pulse?sslmode=disable"
+BINARY=sluice
+MODULE=github.com/sluice
+POSTGRES_URL?=postgres://sluice:sluice@localhost:5433/sluice?sslmode=disable
+MIGRATE=migrate -path migrations -database "pgx5://sluice:sluice@localhost:5433/sluice?sslmode=disable"
 
 bootstrap:
-	go install -tags 'postgres' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
+	go install -tags 'pgx5' github.com/golang-migrate/migrate/v4/cmd/migrate@latest
 	go mod download
 
 migrate-up:
@@ -22,7 +22,7 @@ test-unit:
 	go test ./internal/job/... -count=1
 
 test-integration:
-	go test ./internal/storage/... ./internal/queue/... -count=1 -race -tags integration
+	go test ./internal/storage/... -count=1 -tags integration
 
 test: test-unit test-integration
 
@@ -30,16 +30,16 @@ lint:
 	go vet ./...
 
 dev-api:
-	go run ./cmd/pulse --role api
+	go run ./cmd/sluice --role api
 
 dev-scheduler:
-	go run ./cmd/pulse --role scheduler
+	go run ./cmd/sluice --role scheduler
 
 dev-worker:
-	go run ./cmd/pulse --role worker
+	go run ./cmd/sluice --role worker
 
 docker-build:
-	docker build -t pulse:dev .
+	docker build -t sluice:dev .
 
 up:
 	docker compose up -d

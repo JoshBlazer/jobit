@@ -7,9 +7,9 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pulse/internal/storage"
-	"github.com/pulse/internal/telemetry"
-	"github.com/pulse/internal/tenant"
+	"github.com/sluice/internal/storage"
+	"github.com/sluice/internal/telemetry"
+	"github.com/sluice/internal/tenant"
 )
 
 // authMiddleware reads Authorization: Bearer <api_key>, looks up the tenant,

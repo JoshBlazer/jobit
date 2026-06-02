@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/pulse/internal/storage"
+	"github.com/sluice/internal/storage"
 )
 
 func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {

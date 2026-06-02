@@ -1,6 +1,6 @@
-# Pulse Architecture
+# Sluice Architecture
 
-This document describes the internal design of Pulse — what each component does, why it exists, the guarantees it provides, and the trade-offs we accepted to get there.
+This document describes the internal design of Sluice — what each component does, why it exists, the guarantees it provides, and the trade-offs we accepted to get there.
 
 ## Table of Contents
 
@@ -40,7 +40,7 @@ flowchart TB
         Dashboard[Dashboard SPA]
     end
 
-    subgraph "Pulse Cluster"
+    subgraph "Sluice Cluster"
         API[API Service<br/>HTTP + gRPC<br/>Stateless, N replicas]
         Scheduler[Scheduler Service<br/>Leader + Standbys<br/>via etcd lease]
         Worker[Worker Service<br/>N replicas<br/>Horizontally scaled]
@@ -288,7 +288,7 @@ The transitions are explicit in the schema (`state` column) and audited in the `
 
 ### At-Least-Once Delivery
 
-Pulse guarantees that an accepted job will be executed at least once. Duplicates can occur in the following scenarios:
+Sluice guarantees that an accepted job will be executed at least once. Duplicates can occur in the following scenarios:
 
 - **Worker crashes mid-execution**: heartbeat expires, scheduler reassigns to another worker
 - **Network partition between worker and Postgres**: worker completes locally but cannot record success; job is reassigned
@@ -308,7 +308,7 @@ Job acceptance is durable: when the API returns 200 OK to a submission, the job 
 
 ### Ordering
 
-Pulse does **not** guarantee FIFO ordering within a queue. Workers pull concurrently, retries are reordered by backoff, and the scheduler may batch operations. Applications requiring ordering should use job DAGs or carry sequence numbers in their payload.
+Sluice does **not** guarantee FIFO ordering within a queue. Workers pull concurrently, retries are reordered by backoff, and the scheduler may batch operations. Applications requiring ordering should use job DAGs or carry sequence numbers in their payload.
 
 ---
 
@@ -316,7 +316,7 @@ Pulse does **not** guarantee FIFO ordering within a queue. Workers pull concurre
 
 ### Leader Election
 
-Scheduler replicas race to acquire a 5-second TTL etcd lease at the key `/pulse/scheduler/leader`. The winner becomes leader. The leader renews the lease every 1.5 seconds. On loss of lease (process death, network partition, GC pause > 5s), another standby takes over.
+Scheduler replicas race to acquire a 5-second TTL etcd lease at the key `/sluice/scheduler/leader`. The winner becomes leader. The leader renews the lease every 1.5 seconds. On loss of lease (process death, network partition, GC pause > 5s), another standby takes over.
 
 We chose etcd over alternatives because:
 
@@ -385,7 +385,7 @@ The system is designed so that loss of **Redis or etcd is recoverable** without 
 
 ### Sharding
 
-For very large deployments (> 1M jobs/sec), the natural shard key is `tenant_id`. The system architecture supports this: each tenant could route to a dedicated Pulse cluster with its own Postgres. Currently not implemented — single-cluster scaling is sufficient for the target use cases.
+For very large deployments (> 1M jobs/sec), the natural shard key is `tenant_id`. The system architecture supports this: each tenant could route to a dedicated Sluice cluster with its own Postgres. Currently not implemented — single-cluster scaling is sufficient for the target use cases.
 
 ---
 

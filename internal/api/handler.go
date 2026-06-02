@@ -10,9 +10,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
-	"github.com/pulse/internal/job"
-	"github.com/pulse/internal/storage"
-	"github.com/pulse/internal/tenant"
+	"github.com/sluice/internal/job"
+	"github.com/sluice/internal/storage"
+	"github.com/sluice/internal/tenant"
 )
 
 type submitJobRequest struct {

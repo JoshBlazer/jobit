@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/pulse/internal/storage"
+	"github.com/sluice/internal/storage"
 )
 
 var upgrader = websocket.Upgrader{

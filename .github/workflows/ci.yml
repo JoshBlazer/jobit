@@ -14,9 +14,9 @@ jobs:
       postgres:
         image: postgres:16
         env:
-          POSTGRES_USER: pulse
-          POSTGRES_PASSWORD: pulse
-          POSTGRES_DB: pulse
+          POSTGRES_USER: sluice
+          POSTGRES_PASSWORD: sluice
+          POSTGRES_DB: sluice
           POSTGRES_HOST_AUTH_METHOD: trust
         ports:
           - 5433:5432

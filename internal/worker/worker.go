@@ -12,11 +12,11 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/pulse/internal/job"
-	"github.com/pulse/internal/metrics"
-	"github.com/pulse/internal/queue"
-	"github.com/pulse/internal/storage"
-	"github.com/pulse/internal/telemetry"
+	"github.com/sluice/internal/job"
+	"github.com/sluice/internal/metrics"
+	"github.com/sluice/internal/queue"
+	"github.com/sluice/internal/storage"
+	"github.com/sluice/internal/telemetry"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 )
@@ -144,7 +144,7 @@ func (w *Worker) loadTenants(ctx context.Context) {
 }
 
 func (w *Worker) process(ctx context.Context, jobID uuid.UUID) {
-	tracer := telemetry.Tracer("pulse/worker")
+	tracer := telemetry.Tracer("sluice/worker")
 	ctx, span := tracer.Start(ctx, "worker.execute")
 	span.SetAttributes(attribute.String("job.id", jobID.String()))
 	defer span.End()
