@@ -339,7 +339,7 @@ func RequeueStaleJob(ctx context.Context, db *pgxpool.Pool, jobID uuid.UUID) (de
 			claimed_by  = NULL,
 			deadline    = NULL,
 			last_error  = 'worker heartbeat expired'
-		WHERE id = $1 AND state IN ('claimed', 'running')
+		WHERE id = $1 AND state IN ('claimed', 'running') AND deadline < NOW()
 		RETURNING state::text`, jobID).Scan(&newState)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -447,7 +447,7 @@ func GetPendingJobs(ctx context.Context, db *pgxpool.Pool, limit int) ([]*job.Jo
 		       attempt, max_retries, backoff_seconds, idempotency_key,
 		       last_error, created_at, completed_at
 		FROM jobs
-		WHERE state = 'pending' AND run_at <= NOW()
+		WHERE state = 'pending' AND run_at <= NOW() - INTERVAL '1 minute'
 		ORDER BY priority, run_at
 		LIMIT $1`, limit)
 	if err != nil {

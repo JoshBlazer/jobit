@@ -19,14 +19,14 @@ import (
 )
 
 const (
-	duePollInterval          = 100 * time.Millisecond
-	staleReapInterval        = 5 * time.Second
-	deadLetterInterval       = 30 * time.Second
-	cronInterval             = 60 * time.Second
-	pendingReconcileInterval = 30 * time.Second
-	duePollBatchSize         = 500
-	failedPollBatchSize      = 500
-	cronBatchSize            = 200
+	duePollInterval           = 100 * time.Millisecond
+	staleReapInterval         = 5 * time.Second
+	deadLetterInterval        = 30 * time.Second
+	cronInterval              = 60 * time.Second
+	pendingReconcileInterval  = 30 * time.Second
+	duePollBatchSize          = 500
+	failedPollBatchSize       = 500
+	cronBatchSize             = 200
 	pendingReconcileBatchSize = 500
 )
 
